@@ -88,6 +88,59 @@ export function PublicChatPage() {
         industry: org?.industry ?? 'Service',
         services: services,
         aiName: 'Sarah',
+        onBookingCallback: async (details: any) => {
+          if (!org) return "Error: No organization found.";
+          
+          let customerId;
+          const { data: existing } = await supabase
+            .from('customers')
+            .select('id')
+            .eq('organization_id', org.id)
+            .eq('email', details.customer_email)
+            .single();
+            
+          if (existing) {
+            customerId = existing.id;
+          } else {
+            const { data: newCust, error: custErr } = await supabase
+              .from('customers')
+              .insert({
+                organization_id: org.id,
+                name: details.customer_name,
+                email: details.customer_email,
+                status: 'lead'
+              }).select().single();
+            if (custErr) throw custErr;
+            customerId = newCust.id;
+          }
+          
+          const service = services.find(s => 
+            s.name.toLowerCase().includes(details.service_name.toLowerCase()) || 
+            details.service_name.toLowerCase().includes(s.name.toLowerCase())
+          );
+          if (!service) return "Error: Could not match the requested service.";
+          
+          const start = new Date(`${details.date} ${details.time}`);
+          if (isNaN(start.getTime())) return "Error: Invalid date/time format provided.";
+          const end = new Date(start.getTime() + service.duration_minutes * 60000);
+          
+          const { error: bookErr } = await supabase
+            .from('bookings')
+            .insert({
+              organization_id: org.id,
+              customer_id: customerId,
+              service_id: service.id,
+              start_time: start.toISOString(),
+              end_time: end.toISOString(),
+              status: 'pending',
+              source: 'ai_chat',
+              price: service.price
+            });
+            
+          if (bookErr) throw bookErr;
+          
+          return "Success! Booking created in the database.";
+        }
       };
       
       const aiResponse = await generateReceptionistResponse(

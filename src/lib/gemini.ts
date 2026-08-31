@@ -1,12 +1,8 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, SchemaType, FunctionDeclaration } from '@google/generative-ai';
 
 // Initialize the API using the Vite env variable
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-
-// We export the client in case we need it directly
 export const genAI = new GoogleGenerativeAI(apiKey);
-
-// Using a stable gemini model
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 export interface ChatMessage {
@@ -14,16 +10,39 @@ export interface ChatMessage {
   text: string;
 }
 
+export interface BookingDetails {
+  customer_name: string;
+  customer_email: string;
+  service_name: string;
+  date: string;
+  time: string;
+}
+
 export interface BusinessContext {
   name: string;
   industry: string;
   services: any[];
   aiName: string;
+  onBookingCallback?: (details: BookingDetails) => Promise<string>;
 }
 
-/**
- * Generates a response from the Gemini AI acting as a receptionist.
- */
+// Define the tool for Gemini
+const bookAppointmentDeclaration: FunctionDeclaration = {
+  name: "book_appointment",
+  description: "Books an appointment for the customer and saves their details to the database.",
+  parameters: {
+    type: SchemaType.OBJECT,
+    properties: {
+      customer_name: { type: SchemaType.STRING, description: "Full name of the customer" },
+      customer_email: { type: SchemaType.STRING, description: "Email address of the customer" },
+      service_name: { type: SchemaType.STRING, description: "Name of the service the customer wants to book" },
+      date: { type: SchemaType.STRING, description: "Date of the booking (e.g. tomorrow, 2024-12-01)" },
+      time: { type: SchemaType.STRING, description: "Time of the booking (e.g. 9:30 AM)" },
+    },
+    required: ["customer_name", "customer_email", "service_name", "date", "time"],
+  }
+};
+
 export async function generateReceptionistResponse(
   chatHistory: ChatMessage[],
   context: BusinessContext,
@@ -35,7 +54,6 @@ export async function generateReceptionistResponse(
   }
 
   try {
-    // Format the system instruction / context
     const servicesList = context.services
       .map(s => `- ${s.name} (${s.duration_minutes} mins, ${s.price > 0 ? '$' + s.price : 'Free'})`)
       .join('\n');
@@ -49,26 +67,58 @@ ${servicesList}
 
 Rules for your behavior:
 1. Always be polite, professional, and concise.
-2. If the user asks to book an appointment, ask them which service they want, what time they prefer, and collect their name and email.
-3. If they ask for human assistance, politely inform them that you will transfer them.
-4. Do NOT make up services that are not in the list.
-5. Keep your responses under 3-4 sentences.
+2. If the user asks to book an appointment, ask them which service they want, what date/time they prefer, and collect their name and email.
+3. ONCE YOU HAVE THEIR NAME, EMAIL, SERVICE, DATE, AND TIME, YOU MUST CALL THE "book_appointment" function to save it. Do not just say "I have booked it", actually call the function!
+4. If they ask for human assistance, politely inform them that you will transfer them.
+5. Do NOT make up services that are not in the list.
     `.trim();
 
-    // Convert our ChatMessage format to Gemini's format
     const history = chatHistory.map(msg => ({
       role: msg.sender === 'ai' ? 'model' : 'user',
       parts: [{ text: msg.text }]
     }));
 
-    // Start a chat session with the model
     const chatSession = model.startChat({
       history: history,
-      systemInstruction: systemInstruction, // gemini-1.5 supports systemInstruction
+      systemInstruction: systemInstruction,
+      tools: [{ functionDeclarations: [bookAppointmentDeclaration] }],
     });
 
     // Send the user's new message
     const result = await chatSession.sendMessage(currentMessage);
+    const functionCalls = result.response.functionCalls();
+
+    if (functionCalls && functionCalls.length > 0) {
+      const call = functionCalls[0];
+      if (call.name === "book_appointment") {
+        const args = call.args as any;
+        console.log("Gemini requested to book:", args);
+        
+        let dbResultText = "";
+        if (context.onBookingCallback) {
+          try {
+            dbResultText = await context.onBookingCallback(args as BookingDetails);
+          } catch (err: any) {
+            dbResultText = "Failed to save booking: " + err.message;
+          }
+        } else {
+          dbResultText = "Successfully saved booking in DB!";
+        }
+
+        // Send function response back to Gemini so it can generate the final human-readable text
+        const secondResult = await chatSession.sendMessage([{
+          functionResponse: {
+            name: "book_appointment",
+            response: {
+              result: dbResultText
+            }
+          }
+        }]);
+        
+        return secondResult.response.text();
+      }
+    }
+
     return result.response.text();
   } catch (error) {
     console.error("Error calling Gemini API:", error);
