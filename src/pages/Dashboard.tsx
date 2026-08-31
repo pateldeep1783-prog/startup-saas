@@ -105,9 +105,9 @@ export function Dashboard() {
     }
   }, [user, navigate]);
 
-  // Redirect to onboarding if user has no organization yet
+  // Redirect to onboarding if user has no org OR onboarding not completed
   useEffect(() => {
-    if (user && !organization) {
+    if (user && (!organization || !organization.onboarding_completed)) {
       navigate('/onboarding');
     }
   }, [user, organization, navigate]);

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check, Store, Scissors, Users, Clock, CalendarCheck, Bot, Plug } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
@@ -20,8 +20,19 @@ export function OnboardingPage() {
   const { organization, refreshOrganization } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
-  const [step, setStep] = useState(1);
+  // Resume from saved step (min step 1, max step 7)
+  const [step, setStep] = useState(() => {
+    const saved = organization?.onboarding_step ?? 1;
+    return Math.min(Math.max(saved, 1), 7);
+  });
   const [loading, setLoading] = useState(false);
+
+  // If onboarding already completed, go directly to dashboard
+  useEffect(() => {
+    if (organization?.onboarding_completed) {
+      navigate('/app', { replace: true });
+    }
+  }, [organization, navigate]);
 
   // Step 1
   const [business, setBusiness] = useState({
