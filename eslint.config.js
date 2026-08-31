@@ -23,6 +23,12 @@ export default tseslint.config(
         'warn',
         { allowConstantExport: true },
       ],
+      // Downgrade from error to warn — project uses `any` for Supabase dynamic responses
+      '@typescript-eslint/no-explicit-any': 'warn',
+      // Unused vars: warn only, ignore variables prefixed with _
+      '@typescript-eslint/no-unused-vars': ['warn', { varsIgnorePattern: '^_', argsIgnorePattern: '^_' }],
+      'no-unused-vars': 'off', // handled by TS version above
     },
   }
 );
+

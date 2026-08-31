@@ -245,6 +245,7 @@ export function LoginPage() {
                 Remember me
               </label>
               <a href="#" className="text-sm font-medium text-primary-600 hover:text-primary-700">Forgot password?</a>
+              <Link to="/forgot-password" className="text-sm font-medium text-primary-600 hover:text-primary-700">Forgot password?</Link>
             </div>
             <button type="submit" disabled={loading} className="btn-primary w-full py-3">
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Sign in <ArrowRight className="h-4 w-4" /></>}
@@ -256,6 +257,87 @@ export function LoginPage() {
             <Link to="/signup" className="font-semibold text-primary-600 hover:text-primary-700">Sign up free</Link>
           </p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+export function ForgotPasswordPage() {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
+  const [email, setEmail] = useState('');
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    const { supabase } = await import('@/lib/supabase');
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    setLoading(false);
+    if (error) {
+      setError(error.message);
+    } else {
+      setSent(true);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
+      <div className="w-full max-w-md">
+        <Link to="/" className="flex items-center gap-2 mb-8">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-600 text-white">
+            <Bot className="h-5 w-5" />
+          </div>
+          <span className="text-lg font-bold text-gray-900">ReceptionAI</span>
+        </Link>
+
+        {sent ? (
+          <div className="rounded-lg bg-green-50 border border-green-200 p-6 text-center">
+            <h2 className="text-xl font-bold text-green-800 mb-2">Check your email</h2>
+            <p className="text-sm text-green-700">
+              We've sent a password reset link to <strong>{email}</strong>. Check your inbox.
+            </p>
+            <Link to="/login" className="mt-4 inline-block text-sm font-medium text-primary-600 hover:text-primary-700">
+              Back to sign in
+            </Link>
+          </div>
+        ) : (
+          <>
+            <h1 className="text-2xl font-bold text-gray-900">Reset your password</h1>
+            <p className="mt-2 text-sm text-gray-600">Enter your email and we'll send you a reset link.</p>
+
+            {error && (
+              <div className="mt-4 flex items-center gap-2 rounded-lg bg-error-50 border border-error-200 px-4 py-3 text-sm text-error-700">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" /> {error}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+              <div>
+                <label className="label">Business email</label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="input"
+                  placeholder="jane@business.com"
+                />
+              </div>
+              <button type="submit" disabled={loading} className="btn-primary w-full py-3">
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Send reset link <ArrowRight className="h-4 w-4" /></>}
+              </button>
+            </form>
+
+            <p className="mt-6 text-center text-sm text-gray-600">
+              Remember your password?{' '}
+              <Link to="/login" className="font-semibold text-primary-600 hover:text-primary-700">Sign in</Link>
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

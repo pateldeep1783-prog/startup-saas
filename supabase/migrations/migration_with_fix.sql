@@ -1,5 +1,5 @@
-/*
-# ReceptionAI Core Schema — Multi-tenant foundation
+﻿/*
+# ReceptionAI Core Schema â€” Multi-tenant foundation
 
 1. Purpose
 - Establishes the multi-tenant foundation for ReceptionAI: organizations, members,
@@ -8,21 +8,21 @@
 - RLS is enabled on every table; access is gated through an org-membership helper.
 
 2. New Tables
-- `profiles` — extends auth.users with full_name, avatar_url, country.
-- `organizations` — the tenant root: name, slug, country, currency, timezone, industry, settings (jsonb).
-- `organization_members` — joins users to orgs with a role (owner/admin/manager/staff/read_only).
-- `locations` — physical/business locations per org with address, timezone, phone.
-- `services` — bookable services: name, duration, price, buffers, deposit, cancellation policy, active.
-- `staff` — staff members per org: name, email, phone, role, job_title, working hours.
-- `service_staff` — many-to-many linking services to the staff who can perform them.
-- `staff_hours` — per-staff weekly working hours (day 0-6, start/end).
-- `staff_breaks` — per-staff daily break windows.
-- `staff_leave` — per-staff time-off ranges.
-- `business_hours` — per-location weekly opening hours.
-- `customers` — customer CRM records per org: name, email, phone, status, tags, notes.
-- `customer_notes` — internal notes on customers.
-- `bookings` — appointment records linking customer, service, staff, location, time, status, payment.
-- `booking_status_history` — append-only status transitions for auditability.
+- `profiles` â€” extends auth.users with full_name, avatar_url, country.
+- `organizations` â€” the tenant root: name, slug, country, currency, timezone, industry, settings (jsonb).
+- `organization_members` â€” joins users to orgs with a role (owner/admin/manager/staff/read_only).
+- `locations` â€” physical/business locations per org with address, timezone, phone.
+- `services` â€” bookable services: name, duration, price, buffers, deposit, cancellation policy, active.
+- `staff` â€” staff members per org: name, email, phone, role, job_title, working hours.
+- `service_staff` â€” many-to-many linking services to the staff who can perform them.
+- `staff_hours` â€” per-staff weekly working hours (day 0-6, start/end).
+- `staff_breaks` â€” per-staff daily break windows.
+- `staff_leave` â€” per-staff time-off ranges.
+- `business_hours` â€” per-location weekly opening hours.
+- `customers` â€” customer CRM records per org: name, email, phone, status, tags, notes.
+- `customer_notes` â€” internal notes on customers.
+- `bookings` â€” appointment records linking customer, service, staff, location, time, status, payment.
+- `booking_status_history` â€” append-only status transitions for auditability.
 
 3. Security
 - RLS enabled on all tables.
@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS organization_members (
 ALTER TABLE organization_members ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================
--- Org membership helper (SECURITY DEFINER) — defined after organization_members exists
+-- Org membership helper (SECURITY DEFINER) â€” defined after organization_members exists
 -- ============================================================
 CREATE OR REPLACE FUNCTION is_org_member(p_org_id uuid)
 RETURNS boolean
@@ -154,11 +154,7 @@ CREATE POLICY "members_select_org" ON organization_members FOR SELECT
 
 DROP POLICY IF EXISTS "members_insert_org" ON organization_members;
 CREATE POLICY "members_insert_org" ON organization_members FOR INSERT
-  TO authenticated WITH CHECK (
-    -- Allow user to add themselves (new org signup) OR if already a member (inviting others)
-    user_id = auth.uid()
-    OR is_org_member(organization_id)
-  );
+  TO authenticated WITH CHECK (is_org_member(organization_id));
 
 DROP POLICY IF EXISTS "members_update_org" ON organization_members;
 CREATE POLICY "members_update_org" ON organization_members FOR UPDATE
@@ -621,3 +617,4 @@ $$;
 GRANT EXECUTE ON FUNCTION get_public_org(text) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION get_public_services(text) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION get_public_staff(text) TO anon, authenticated;
+

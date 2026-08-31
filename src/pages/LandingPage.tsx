@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import {
-  Bot, Calendar, MessageSquare, Phone, Zap, BarChart3, Bell, CreditCard,
-  Check, ArrowRight, Star, Shield, Clock, Users, Globe, ChevronDown,
+  Bot, Calendar, MessageSquare, Phone, BarChart3, Bell, CreditCard,
+  Check, ArrowRight, Shield, Users, Globe, ChevronDown,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/lib/auth';

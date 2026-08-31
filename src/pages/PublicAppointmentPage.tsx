@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { getAvailableSlots, type Slot } from '@/lib/availability';
-import { Bot, Calendar, Clock, CheckCircle, XCircle, ArrowLeft, RefreshCw } from 'lucide-react';
+import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { formatCurrency, formatDate, formatTime } from '@/lib/utils';
 import { useToast } from '@/components/ui/Toast';
 

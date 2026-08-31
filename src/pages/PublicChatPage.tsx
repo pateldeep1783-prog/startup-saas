@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { Bot, Send, User, Calendar, Clock, Sparkles, RefreshCw } from 'lucide-react';
-import { formatCurrency, formatDate, formatTime } from '@/lib/utils';
+import { Bot, Send, Sparkles, RefreshCw } from 'lucide-react';
+import { formatCurrency } from '@/lib/utils';
 import { useToast } from '@/components/ui/Toast';
 
 export function PublicChatPage() {

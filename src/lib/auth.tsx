@@ -109,17 +109,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) return { error: error.message };
     if (!authData.user) return { error: 'Sign up failed' };
 
-    const userId = authData.user.id;
-
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .insert({ id: userId, full_name: data.fullName, country: data.country })
-      .select()
-      .single();
-
-    if (!profileData) {
-      await supabase.from('profiles').upsert({ id: userId, full_name: data.fullName, country: data.country });
+    // Ensure session is active before making DB calls
+    if (authData.session) {
+      await supabase.auth.setSession({
+        access_token: authData.session.access_token,
+        refresh_token: authData.session.refresh_token,
+      });
     }
+
+    const userId = authData.user.id;
 
     const slug = data.businessName
       .toLowerCase()
@@ -132,32 +130,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ? { currency: 'USD', timezone: 'America/New_York' }
       : { currency: 'GBP', timezone: 'Europe/London' };
 
-    const { data: orgData, error: orgError } = await supabase
-      .from('organizations')
-      .insert({
-        name: data.businessName,
-        slug,
-        country: data.country,
-        currency: countryInfo.currency,
-        timezone: countryInfo.timezone,
-        onboarding_completed: false,
-        onboarding_step: 1,
-      })
-      .select()
-      .single();
+    // Use SECURITY DEFINER RPC function to bypass RLS for org creation
+    const { data: orgId, error: rpcError } = await supabase.rpc('create_organization_on_signup', {
+      p_org_name:  data.businessName,
+      p_slug:      slug,
+      p_country:   data.country,
+      p_currency:  countryInfo.currency,
+      p_timezone:  countryInfo.timezone,
+      p_full_name: data.fullName,
+    });
 
-    if (orgError) return { error: orgError.message };
-    if (!orgData) return { error: 'Failed to create organization' };
-
-    const { error: memberError } = await supabase
-      .from('organization_members')
-      .insert({
-        organization_id: orgData.id,
-        user_id: userId,
-        role: 'owner',
-      });
-
-    if (memberError) return { error: memberError.message };
+    if (rpcError) return { error: rpcError.message };
+    if (!orgId) return { error: 'Failed to create organization' };
 
     await loadOrgData(userId);
     return { error: null };
