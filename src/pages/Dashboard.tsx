@@ -105,6 +105,13 @@ export function Dashboard() {
     }
   }, [user, navigate]);
 
+  // Redirect to onboarding if user has no organization yet
+  useEffect(() => {
+    if (user && !organization) {
+      navigate('/onboarding');
+    }
+  }, [user, organization, navigate]);
+
   // Load real or seed fallback data
   useEffect(() => {
     if (!organization) return;
@@ -357,8 +364,8 @@ export function Dashboard() {
               {getInitials(user?.email ?? 'Staff Member')}
             </div>
             <div className="overflow-hidden">
-              <p className="text-xs font-semibold text-gray-800 truncate">{organization?.name ?? 'Demo Clinic'}</p>
-              <p className="text-[10px] text-gray-500 capitalize">{role ?? 'Owner'}</p>
+              <p className="text-xs font-semibold text-gray-800 truncate">{organization?.name ?? '...'}</p>
+              <p className="text-[10px] text-gray-500 capitalize">{role ?? 'owner'}</p>
             </div>
           </div>
           <select
