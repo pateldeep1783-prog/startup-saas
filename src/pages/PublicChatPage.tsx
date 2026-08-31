@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { Bot, Send, Sparkles, RefreshCw } from 'lucide-react';
+import { Bot, Send, ArrowLeft, RefreshCw, Sparkles } from 'lucide-react';
+import { generateReceptionistResponse } from '@/lib/gemini';
 import { formatCurrency } from '@/lib/utils';
 import { useToast } from '@/components/ui/Toast';
 
@@ -72,36 +73,36 @@ export function PublicChatPage() {
     fetchOrg();
   }, [businessSlug]);
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!chatInput.trim()) return;
 
     const userMsg = { sender: 'customer', text: chatInput };
-    setMessages((prev) => [...prev, userMsg]);
+    const newMessages = [...messages, userMsg];
+    setMessages(newMessages);
     setChatInput('');
     setIsTyping(true);
 
-    setTimeout(() => {
-      let aiText = `I'm not sure how to answer that question. Would you like to schedule an appointment, check available times, or request a human callback?`;
-      const txt = chatInput.toLowerCase();
+    try {
+      const context = {
+        name: org?.name ?? 'Business',
+        industry: org?.industry ?? 'Service',
+        services: services,
+        aiName: 'Sarah',
+      };
+      
+      const aiResponse = await generateReceptionistResponse(
+        messages, 
+        context, 
+        chatInput
+      );
 
-      if (txt.includes('book') || txt.includes('appointment') || txt.includes('schedule') || txt.includes('visit')) {
-        const listStr = services.map(s => `\n- ${s.name} (${formatCurrency(s.price, org?.currency)})`).join('');
-        aiText = `Sure! I can help you book an appointment. Here are the services we provide: ${listStr}\n\nWhich one would you like to schedule?`;
-      } else if (txt.includes('cleaning') || txt.includes('consultation')) {
-        aiText = `I have slots available tomorrow morning at 9:30 AM or 11:00 AM. Would you like me to hold the 9:30 AM slot for you?`;
-      } else if (txt.includes('yes') || txt.includes('9:30') || txt.includes('works')) {
-        aiText = `Perfect! To lock in your booking for 9:30 AM tomorrow, please confirm your name and email address.`;
-      } else if (txt.includes('doe') || txt.includes('@')) {
-        aiText = `Awesome! I have scheduled your booking at 9:30 AM tomorrow. You will receive an email confirmation and Stripe payment link shortly. Looking forward to seeing you!`;
-      } else if (txt.includes('hi') || txt.includes('hello')) {
-        aiText = `Hello! I'm Sarah, your AI Receptionist. What can I do for you today?`;
-      } else if (txt.includes('human') || txt.includes('speak to someone') || txt.includes('help')) {
-        aiText = `No problem! I am transferring you to a human manager. They will write back to you shortly.`;
-      }
-
-      setMessages((prev) => [...prev, { sender: 'ai', text: aiText }]);
+      setMessages((prev) => [...prev, { sender: 'ai', text: aiResponse }]);
+    } catch (error) {
+      console.error(error);
+      setMessages((prev) => [...prev, { sender: 'ai', text: "I'm having trouble connecting to my brain right now. Please try again!" }]);
+    } finally {
       setIsTyping(false);
-    }, 1200);
+    }
   };
 
   if (loading) {

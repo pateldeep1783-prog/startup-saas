@@ -45,6 +45,7 @@ import {
 import { formatCurrency, formatDate, formatTime, getInitials } from '@/lib/utils';
 import { getAvailableSlots, type Slot } from '@/lib/availability';
 import { CustomSelect } from '@/components/ui/Select';
+import { generateReceptionistResponse } from '@/lib/gemini';
 
 // Define the navigation tabs
 const TABS = [
@@ -313,37 +314,37 @@ export function Dashboard() {
     }
   };
 
-  // Mock chatbot response generator for playground
-  const handlePlaygroundSend = () => {
+  // Real chatbot response generator for playground
+  const handlePlaygroundSend = async () => {
     if (!playgroundInput.trim()) return;
 
     const userMsg = { sender: 'customer', text: playgroundInput };
-    setPlaygroundMessages((prev) => [...prev, userMsg]);
+    const newMessages = [...playgroundMessages, userMsg];
+    setPlaygroundMessages(newMessages);
     setPlaygroundInput('');
     setIsPlaygroundTyping(true);
 
-    setTimeout(() => {
-      let aiText = `I apologize, I didn't quite catch that. Would you like to schedule a booking, view available times, or leave a message?`;
-      const txt = playgroundInput.toLowerCase();
+    try {
+      const context = {
+        name: organization?.name ?? 'Business',
+        industry: organization?.industry ?? 'Service',
+        services: services,
+        aiName: (organization?.settings as any)?.ai_config?.name ?? 'Sarah',
+      };
+      
+      const aiResponse = await generateReceptionistResponse(
+        playgroundMessages, 
+        context, 
+        playgroundInput
+      );
 
-      if (txt.includes('book') || txt.includes('appointment') || txt.includes('schedule') || txt.includes('see someone')) {
-        const availableSlots = services.map(s => `\n- ${s.name} (${s.duration_minutes}m, ${formatCurrency(s.price, organization?.currency)})`);
-        aiText = `Sure! I can help you book. Here are the services we offer: ${availableSlots.join('')}\n\nWhich service would you like to schedule?`;
-      } else if (txt.includes('consultation') || txt.includes('cleaning') || txt.includes('treatment')) {
-        aiText = `Great choice! I have slots available tomorrow morning at 9:30 AM and 11:00 AM. Would you like me to hold the 9:30 AM slot for you?`;
-      } else if (txt.includes('yes') || txt.includes('9:30') || txt.includes('works')) {
-        aiText = `Perfect! To lock in your appointment at 9:30 AM tomorrow, please confirm your name and email.`;
-      } else if (txt.includes('doe') || txt.includes('@')) {
-        aiText = `Thank you! I have confirmed your appointment. I've sent a Stripe payment link to complete the deposit if required, and a calendar invite. We look forward to seeing you!`;
-      } else if (txt.includes('hi') || txt.includes('hello')) {
-        aiText = `Hello! I'm Sarah, your AI Receptionist. I can assist with bookings, general FAQs, and policies. What can I do for you?`;
-      } else if (txt.includes('human') || txt.includes('speak to') || txt.includes('receptionist')) {
-        aiText = `No problem. Transferring this chat to a human receptionist. They will pick up right here shortly!`;
-      }
-
-      setPlaygroundMessages((prev) => [...prev, { sender: 'ai', text: aiText }]);
+      setPlaygroundMessages((prev) => [...prev, { sender: 'ai', text: aiResponse }]);
+    } catch (error) {
+      console.error(error);
+      setPlaygroundMessages((prev) => [...prev, { sender: 'ai', text: "I'm having trouble connecting to my brain right now. Please try again!" }]);
+    } finally {
       setIsPlaygroundTyping(false);
-    }, 1200);
+    }
   };
 
   return (
