@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatTime, getInitials } from '@/lib/utils';
 import { getAvailableSlots, type Slot } from '@/lib/availability';
+import { CustomSelect } from '@/components/ui/Select';
 
 // Define the navigation tabs
 const TABS = [
@@ -1158,44 +1159,32 @@ export function Dashboard() {
             <form onSubmit={handleCreateBooking} className="space-y-4 text-xs">
               <div>
                 <label className="label">Select Customer</label>
-                <select
+                <CustomSelect
                   required
-                  className="input"
+                  placeholder="-- Choose Customer --"
                   value={newBooking.customerId}
-                  onChange={(e) => setNewBooking({ ...newBooking, customerId: e.target.value })}
-                >
-                  <option value="">-- Choose Customer --</option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                  onChange={(val) => setNewBooking({ ...newBooking, customerId: val })}
+                  options={customers.map((c) => ({ value: c.id, label: c.name }))}
+                />
               </div>
               <div>
                 <label className="label">Select Service</label>
-                <select
+                <CustomSelect
                   required
-                  className="input"
+                  placeholder="-- Choose Service --"
                   value={newBooking.serviceId}
-                  onChange={(e) => setNewBooking({ ...newBooking, serviceId: e.target.value })}
-                >
-                  <option value="">-- Choose Service --</option>
-                  {services.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name} ({s.duration_minutes} mins)</option>
-                  ))}
-                </select>
+                  onChange={(val) => setNewBooking({ ...newBooking, serviceId: val })}
+                  options={services.map((s) => ({ value: s.id, label: `${s.name} (${s.duration_minutes} mins)` }))}
+                />
               </div>
               <div>
                 <label className="label">Select Practitioner (Staff)</label>
-                <select
-                  className="input"
+                <CustomSelect
+                  placeholder="Auto-Assign"
                   value={newBooking.staffId}
-                  onChange={(e) => setNewBooking({ ...newBooking, staffId: e.target.value })}
-                >
-                  <option value="">Auto-Assign</option>
-                  {staff.map((st) => (
-                    <option key={st.id} value={st.id}>{st.name}</option>
-                  ))}
-                </select>
+                  onChange={(val) => setNewBooking({ ...newBooking, staffId: val })}
+                  options={staff.map((st) => ({ value: st.id, label: st.name }))}
+                />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
