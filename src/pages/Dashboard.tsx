@@ -39,7 +39,8 @@ import {
   FileText,
   Check,
   MapPin,
-  DollarSign
+  DollarSign,
+  Menu
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatTime, getInitials } from '@/lib/utils';
 import { getAvailableSlots, type Slot } from '@/lib/availability';
@@ -69,6 +70,7 @@ export function Dashboard() {
   const toast = useToast();
 
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
 
@@ -344,9 +346,17 @@ export function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
+    <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row relative">
+      {/* Mobile Sidebar Overlay */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-gray-900/50 z-40 lg:hidden transition-opacity"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
       {/* Sidebar Navigation */}
-      <aside className="w-full lg:w-64 bg-white border-r border-gray-200 flex-shrink-0 flex flex-col">
+      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 flex-shrink-0 flex flex-col transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="h-16 px-6 border-b border-gray-100 flex items-center gap-3">
           <div className="h-9 w-9 bg-primary-600 rounded-lg flex items-center justify-center text-white">
             <Bot className="h-5 w-5" />
@@ -390,7 +400,10 @@ export function Dashboard() {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  setIsMobileMenuOpen(false); // Close menu on tab click on mobile
+                }}
                 className={`w-full flex items-center gap-3 px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
                   isTabActive
                     ? 'bg-primary-50 text-primary-600'
@@ -418,16 +431,22 @@ export function Dashboard() {
       </aside>
 
       {/* Main Panel */}
-      <main className="flex-1 flex flex-col min-w-0 min-h-screen">
+      <main className="flex-1 flex flex-col min-w-0 min-h-screen lg:w-[calc(100%-16rem)]">
         {/* Top Header */}
-        <header className="h-16 bg-white border-b border-gray-100 px-6 flex items-center justify-between z-10 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-semibold text-gray-800 capitalize">{activeTab.replace('-', ' ')}</span>
-            <span className="text-gray-300">/</span>
-            <span className="text-xs text-gray-500">{selectedLocation?.name}</span>
+        <header className="h-16 bg-white border-b border-gray-100 px-4 sm:px-6 flex items-center justify-between z-10 flex-shrink-0 sticky top-0">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button 
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="p-2 -ml-2 text-gray-500 hover:bg-gray-100 rounded-lg lg:hidden"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <span className="text-sm font-semibold text-gray-800 capitalize hidden sm:inline-block">{activeTab.replace('-', ' ')}</span>
+            <span className="text-gray-300 hidden sm:inline-block">/</span>
+            <span className="text-xs font-medium sm:font-normal text-gray-800 sm:text-gray-500 truncate max-w-[120px] sm:max-w-none">{selectedLocation?.name}</span>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             {/* Live AI Status Widget */}
             <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-full px-3 py-1">
               <span className={`h-2.5 w-2.5 rounded-full ${aiEnabled ? 'bg-success-500 animate-pulse' : 'bg-gray-400'}`} />
@@ -442,15 +461,15 @@ export function Dashboard() {
 
             <button
               onClick={() => setBookingModalOpen(true)}
-              className="btn-primary flex items-center gap-1.5 py-1.5 text-xs"
+              className="btn-primary flex items-center gap-1.5 py-1.5 px-2 sm:px-3 text-xs"
             >
-              <Plus className="h-3.5 w-3.5" /> Book Appointment
+              <Plus className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Book Appointment</span>
             </button>
           </div>
         </header>
 
         {/* Dashboard Pages Scrollable Container */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
           {loading && (
             <div className="flex items-center justify-center py-20">
               <RefreshCw className="h-8 w-8 text-primary-600 animate-spin" />
@@ -463,7 +482,7 @@ export function Dashboard() {
               {activeTab === 'dashboard' && (
                 <div className="space-y-6">
                   {/* Top Stats Cards */}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     {[
                       { label: "Today's Appointments", val: bookings.filter(b => b.status !== 'cancelled' && b.status !== 'no_show').length, color: 'text-primary-600' },
                       { label: "AI Receptionist Attributed", val: `${Math.round((bookings.length / (bookings.length + 1)) * 100)}%`, color: 'text-success-600' },
