@@ -40,7 +40,10 @@ import {
   Check,
   MapPin,
   DollarSign,
-  Menu
+  Menu,
+  Plug,
+  KeyRound,
+  Link as LinkIcon
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatTime, getInitials } from '@/lib/utils';
 import { getAvailableSlots, type Slot } from '@/lib/availability';
@@ -89,19 +92,55 @@ export function Dashboard() {
   // State to toggle live AI status
   const [aiEnabled, setAiEnabled] = useState(true);
 
-  // Integrations State (array of connected integration IDs)
+  // Integrations State
   const [connectedIntegrations, setConnectedIntegrations] = useState<string[]>(
     organization?.settings?.integrations || []
   );
+  const [selectedIntegration, setSelectedIntegration] = useState<{id:string;name:string;desc:string;category:string} | null>(null);
+  const [intContactType, setIntContactType] = useState<'email'|'phone'>('email');
+  const [intContactValue, setIntContactValue] = useState('');
+  const [intApiKey, setIntApiKey] = useState('');
+  const [intAccountId, setIntAccountId] = useState('');
 
   // Available Integrations Definitions
   const INTEGRATION_DEFINITIONS = [
-    { id: 'google_calendar', name: 'Google Calendar Sync', desc: 'Sync staff bookings to and block slots from Google Calendar' },
-    { id: 'stripe', name: 'Stripe Payments Integration', desc: 'Authorize and execute booking deposit processing' },
-    { id: 'twilio', name: 'Twilio SMS & Messaging', desc: 'Route AI voice receptionist and SMS reminders' },
-    { id: 'whatsapp', name: 'WhatsApp Business API', desc: 'Send templates and automated booking chats' },
-    { id: 'email', name: 'Email', desc: 'Send confirmations and reminders' }
+    { id: 'google_calendar', name: 'Google Calendar', desc: 'Sync availability and bookings', category: 'Calendar' },
+    { id: 'outlook', name: 'Microsoft Outlook', desc: 'Sync with Outlook calendar', category: 'Calendar' },
+    { id: 'stripe', name: 'Stripe', desc: 'Accept payments and deposits', category: 'Payments' },
+    { id: 'email', name: 'Email', desc: 'Send confirmations and reminders', category: 'Messaging' },
+    { id: 'sms', name: 'SMS', desc: 'Text message notifications', category: 'Messaging' },
+    { id: 'whatsapp', name: 'WhatsApp', desc: 'WhatsApp Business messaging', category: 'Messaging' },
+    { id: 'voice', name: 'Voice AI', desc: 'AI answers phone calls', category: 'Voice' },
+    { id: 'hubspot', name: 'HubSpot', desc: 'CRM sync', category: 'CRM' },
+    { id: 'zapier', name: 'Zapier', desc: 'Connect to 5000+ apps', category: 'Automation' },
   ];
+  const INTEGRATION_CATEGORIES = [...new Set(INTEGRATION_DEFINITIONS.map(i => i.category))];
+
+  async function handleIntegrationConnect() {
+    if (!selectedIntegration || !intContactValue.trim()) {
+      toast.show('Enter an email or phone number first', 'error');
+      return;
+    }
+    const newList = [...connectedIntegrations, selectedIntegration.id];
+    setConnectedIntegrations(newList);
+    if (organization) {
+      await supabase.from('organizations').update({ settings: { ...organization.settings, integrations: newList } }).eq('id', organization.id);
+    }
+    toast.show(`${selectedIntegration.name} connected successfully!`, 'success');
+    setSelectedIntegration(null);
+    setIntContactValue('');
+    setIntApiKey('');
+    setIntAccountId('');
+  }
+
+  async function handleIntegrationDisconnect(id: string, name: string) {
+    const newList = connectedIntegrations.filter(x => x !== id);
+    setConnectedIntegrations(newList);
+    if (organization) {
+      await supabase.from('organizations').update({ settings: { ...organization.settings, integrations: newList } }).eq('id', organization.id);
+    }
+    toast.show(`${name} disconnected.`, 'success');
+  }
 
   // Manual Booking Modal
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
@@ -1146,57 +1185,60 @@ export function Dashboard() {
 
               {/* TAB 13: INTEGRATIONS */}
               {activeTab === 'integrations' && (
-                <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 space-y-6">
+                <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 space-y-8">
                   <div>
                     <h2 className="text-base font-bold text-gray-900">Integration Hub</h2>
                     <p className="text-xs text-gray-500">Connect with third-party tools, calendars, and channels</p>
                   </div>
 
-                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 text-xs">
-                    {INTEGRATION_DEFINITIONS.map((int, idx) => {
-                      const isConnected = connectedIntegrations.includes(int.id);
-                      return (
-                        <div key={idx} className="border border-gray-200 rounded-xl p-5 bg-white flex flex-col justify-between">
-                          <div>
-                            <div className="flex items-center justify-between mb-2">
-                              <h4 className="font-semibold text-gray-800">{int.name}</h4>
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isConnected ? 'bg-success-100 text-success-700' : 'bg-gray-100 text-gray-600'}`}>
-                                {isConnected ? 'Connected' : 'Disconnected'}
-                              </span>
+                  {INTEGRATION_CATEGORIES.map((cat) => (
+                    <div key={cat}>
+                      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">{cat}</h3>
+                      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {INTEGRATION_DEFINITIONS.filter(i => i.category === cat).map((int) => {
+                          const isConnected = connectedIntegrations.includes(int.id);
+                          return (
+                            <div key={int.id} className={`border rounded-xl p-5 bg-white flex flex-col justify-between transition-all ${isConnected ? 'border-success-300 bg-success-50/20' : 'border-gray-200'}`}>
+                              <div>
+                                <div className="flex items-start justify-between mb-3">
+                                  <div className="h-10 w-10 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500">
+                                    <Plug className="h-5 w-5" />
+                                  </div>
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isConnected ? 'bg-success-100 text-success-700' : 'bg-gray-100 text-gray-600'}`}>
+                                    {isConnected ? '✓ Connected' : 'Not connected'}
+                                  </span>
+                                </div>
+                                <h4 className="font-semibold text-gray-900 text-sm">{int.name}</h4>
+                                <p className="text-gray-500 text-xs mt-1 leading-relaxed">{int.desc}</p>
+                              </div>
+                              <div className="mt-4 flex gap-2">
+                                {isConnected ? (
+                                  <>
+                                    <button onClick={() => handleIntegrationDisconnect(int.id, int.name)} className="text-xs text-error-600 hover:underline">Disconnect</button>
+                                    <button onClick={() => toast.show('Sync started', 'success')} className="btn-ghost text-xs flex items-center gap-1"><RefreshCw className="h-3.5 w-3.5" /> Sync</button>
+                                  </>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      const needsPhone = int.id === 'sms' || int.id === 'voice' || int.id === 'whatsapp';
+                                      setIntContactType(needsPhone ? 'phone' : 'email');
+                                      setIntContactValue('');
+                                      setIntApiKey('');
+                                      setIntAccountId('');
+                                      setSelectedIntegration(int);
+                                    }}
+                                    className="btn-secondary text-xs"
+                                  >
+                                    Connect
+                                  </button>
+                                )}
+                              </div>
                             </div>
-                            <p className="text-gray-500 text-[11px] leading-relaxed">{int.desc}</p>
-                          </div>
-                          <div className="mt-4 border-t border-gray-100 pt-4 text-right">
-                            <button 
-                              onClick={async () => {
-                                if (!isConnected) {
-                                  toast.show(`Connecting to ${int.name}...`, 'success');
-                                  setTimeout(async () => {
-                                    const newList = [...connectedIntegrations, int.id];
-                                    setConnectedIntegrations(newList);
-                                    if (organization) {
-                                      await supabase.from('organizations').update({ settings: { ...organization.settings, integrations: newList } }).eq('id', organization.id);
-                                    }
-                                    toast.show(`${int.name} connected successfully!`, 'success');
-                                  }, 1500);
-                                } else {
-                                  const newList = connectedIntegrations.filter(id => id !== int.id);
-                                  setConnectedIntegrations(newList);
-                                  if (organization) {
-                                    await supabase.from('organizations').update({ settings: { ...organization.settings, integrations: newList } }).eq('id', organization.id);
-                                  }
-                                  toast.show(`${int.name} disconnected.`, 'success');
-                                }
-                              }}
-                              className={`px-3 py-1 rounded font-semibold ${isConnected ? 'bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors' : 'bg-primary-600 text-white hover:bg-primary-700 transition-colors'}`}
-                            >
-                              {isConnected ? 'Manage' : 'Connect'}
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
 
