@@ -3,7 +3,7 @@ import { GoogleGenerativeAI, SchemaType, FunctionDeclaration } from '@google/gen
 // Initialize the API using the Vite env variable
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
 export const genAI = new GoogleGenerativeAI(apiKey);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
 
 export interface ChatMessage {
   sender: 'ai' | 'customer';
@@ -23,6 +23,7 @@ export interface BusinessContext {
   industry: string;
   services: any[];
   aiName: string;
+  customInstructions?: string;
   onBookingCallback?: (details: BookingDetails) => Promise<string>;
 }
 
@@ -70,7 +71,8 @@ Rules for your behavior:
 2. If the user asks to book an appointment, ask them which service they want, what date/time they prefer, and collect their name and email.
 3. ONCE YOU HAVE THEIR NAME, EMAIL, SERVICE, DATE, AND TIME, YOU MUST CALL THE "book_appointment" function to save it. Do not just say "I have booked it", actually call the function!
 4. If they ask for human assistance, politely inform them that you will transfer them.
-5. Do NOT make up services that are not in the list.
+7. Do NOT make up services that are not in the list.
+${context.customInstructions ? `\nSpecial Instructions for this business:\n${context.customInstructions}` : ''}
     `.trim();
 
     const history = chatHistory.map(msg => ({
@@ -78,9 +80,14 @@ Rules for your behavior:
       parts: [{ text: msg.text }]
     }));
 
+    // Gemini API requires the first message in history to be from the user
+    if (history.length > 0 && history[0].role === 'model') {
+      history.unshift({ role: 'user', parts: [{ text: "Hello" }] });
+    }
+
     const chatSession = model.startChat({
       history: history,
-      systemInstruction: systemInstruction,
+      systemInstruction: { parts: [{ text: systemInstruction }] },
       tools: [{ functionDeclarations: [bookAppointmentDeclaration] }],
     });
 
@@ -106,16 +113,23 @@ Rules for your behavior:
         }
 
         // Send function response back to Gemini so it can generate the final human-readable text
-        const secondResult = await chatSession.sendMessage([{
-          functionResponse: {
-            name: "book_appointment",
-            response: {
-              result: dbResultText
+        try {
+          const secondResult = await chatSession.sendMessage([{
+            functionResponse: {
+              name: "book_appointment",
+              response: { result: dbResultText }
             }
+          }]);
+          return secondResult.response.text();
+        } catch (functionErr) {
+          console.warn("Gemini failed to generate text after function call, using fallback:", functionErr);
+          // If the booking succeeded but the AI crashed generating the text response,
+          // just return a success string so the user knows it worked!
+          if (dbResultText.toLowerCase().includes('success')) {
+            return "Thank you! Your appointment has been successfully booked. Let me know if you need anything else.";
           }
-        }]);
-        
-        return secondResult.response.text();
+          return "I tried to book your appointment, but something went wrong: " + dbResultText;
+        }
       }
     }
 

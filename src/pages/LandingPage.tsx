@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/lib/auth';
+import { AIChatWidget } from '@/components/AIChatWidget';
 
 export function LandingPage() {
   const { user } = useAuth();
@@ -50,10 +51,10 @@ export function LandingPage() {
               <span className="text-lg font-bold text-gray-900">ReceptionAI</span>
             </Link>
             <div className="hidden md:flex items-center gap-8">
-              <a href="#features" className="text-sm font-medium text-gray-600 hover:text-gray-900">Features</a>
-              <a href="#how-it-works" className="text-sm font-medium text-gray-600 hover:text-gray-900">How it works</a>
-              <a href="#industries" className="text-sm font-medium text-gray-600 hover:text-gray-900">Industries</a>
-              <a href="#pricing" className="text-sm font-medium text-gray-600 hover:text-gray-900">Pricing</a>
+              <a href="#features" className="text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors">Features</a>
+              <a href="#how-it-works" className="text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors">How it works</a>
+              <a href="#industries" className="text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors">Industries</a>
+              <a href="#pricing" className="text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors">Pricing</a>
             </div>
             <div className="flex items-center gap-3">
               {user ? (
@@ -302,6 +303,7 @@ export function LandingPage() {
           </div>
         </div>
       </footer>
+      <AIChatWidget />
     </div>
   );
 }

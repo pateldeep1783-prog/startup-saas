@@ -17,7 +17,7 @@ const STEPS = [
 ];
 
 export function OnboardingPage() {
-  const { organization, refreshOrganization } = useAuth();
+  const { user, organization, isSuperAdmin, refreshOrganization } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
   // Resume from saved step (min step 1, max step 7)
@@ -29,10 +29,14 @@ export function OnboardingPage() {
 
   // If onboarding already completed, go directly to dashboard
   useEffect(() => {
+    if (isSuperAdmin) {
+      navigate('/super-admin', { replace: true });
+      return;
+    }
     if (organization?.onboarding_completed) {
       navigate('/app', { replace: true });
     }
-  }, [organization, navigate]);
+  }, [organization, isSuperAdmin, navigate]);
 
   // Step 1
   const [business, setBusiness] = useState({

@@ -10,6 +10,7 @@ type AuthContextValue = {
   organization: Organization | null;
   members: OrganizationMember[];
   role: string | null;
+  isSuperAdmin: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (data: SignUpData) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
@@ -33,6 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [members, setMembers] = useState<OrganizationMember[]>([]);
   const [role, setRole] = useState<string | null>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
 
   async function loadOrgData(userId: string) {
     const { data: memberData } = await supabase
@@ -58,6 +60,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setRole(null);
       setMembers([]);
     }
+
+    // Check super admin status
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('is_super_admin')
+        .eq('id', userId)
+        .single();
+      
+      setIsSuperAdmin(!!profile?.is_super_admin);
+    } catch (e) {
+      setIsSuperAdmin(false);
+    }
   }
 
   useEffect(() => {
@@ -82,6 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setOrganization(null);
         setRole(null);
         setMembers([]);
+        setIsSuperAdmin(false);
       }
     });
 
@@ -152,6 +168,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setOrganization(null);
     setRole(null);
     setMembers([]);
+    setIsSuperAdmin(false);
   }
 
   async function refreshOrganization() {
@@ -160,7 +177,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, session, loading, organization, members, role, signIn, signUp, signOut, refreshOrganization }}
+      value={{ user, session, loading, organization, members, role, isSuperAdmin, signIn, signUp, signOut, refreshOrganization }}
     >
       {children}
     </AuthContext.Provider>

@@ -8,6 +8,7 @@ import { Dashboard } from '@/pages/Dashboard';
 import { PublicBookingPage } from '@/pages/PublicBookingPage';
 import { PublicAppointmentPage } from '@/pages/PublicAppointmentPage';
 import { PublicChatPage } from '@/pages/PublicChatPage';
+import { SuperAdminPage } from '@/pages/SuperAdminPage';
 import type { ReactNode } from 'react';
 
 /** Auth guard — redirects to /login if not authenticated */
@@ -42,6 +43,9 @@ function App() {
             <Route path="/book/:businessSlug" element={<PublicBookingPage />} />
             <Route path="/appointment/:bookingId" element={<PublicAppointmentPage />} />
             <Route path="/ai-chat/:businessSlug" element={<PublicChatPage />} />
+
+            {/* Super Admin Route */}
+            <Route path="/super-admin" element={<RequireAuth><SuperAdminPage /></RequireAuth>} />
 
             {/* Fallback Catch-All */}
             <Route path="*" element={<Navigate to="/" replace />} />

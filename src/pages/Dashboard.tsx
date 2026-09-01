@@ -63,11 +63,10 @@ const TABS = [
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'integrations', label: 'Integrations', icon: Globe },
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
-  { id: 'super-admin', label: 'Super Admin', icon: ShieldAlert },
 ];
 
 export function Dashboard() {
-  const { user, organization, signOut, role } = useAuth();
+  const { user, organization, signOut, role, isSuperAdmin } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
 
@@ -95,9 +94,16 @@ export function Dashboard() {
   const [selectedBooking, setSelectedBooking] = useState<any>(null);
   const [bookingDetailOpen, setBookingDetailOpen] = useState(false);
 
+  // AI Receptionist Settings State
+  const [aiSettings, setAiSettings] = useState({
+    name: 'Sarah',
+    greeting: "Hi! I'm here to help you book an appointment. How can I assist you today?",
+    instructions: "Always be polite. Recommend morning slots first. Do not promise discounts unless configured. Support human escalation for refunds."
+  });
+
   // Local state for playground chatbot
   const [playgroundMessages, setPlaygroundMessages] = useState<any[]>([
-    { sender: 'ai', text: `Hi there! I am Sarah, your AI Receptionist. How can I help you today?` }
+    { sender: 'ai', text: aiSettings.greeting }
   ]);
   const [playgroundInput, setPlaygroundInput] = useState('');
   const [isPlaygroundTyping, setIsPlaygroundTyping] = useState(false);
@@ -111,10 +117,17 @@ export function Dashboard() {
 
   // Redirect to onboarding if user has no org OR onboarding not completed
   useEffect(() => {
+    // If super admin, send to super admin panel
+    if (isSuperAdmin) {
+      navigate('/super-admin');
+      return;
+    }
+    
+    // Normal users must have an organization
     if (user && (!organization || !organization.onboarding_completed)) {
       navigate('/onboarding');
     }
-  }, [user, organization, navigate]);
+  }, [user, organization, isSuperAdmin, navigate]);
 
   // Load real or seed fallback data
   useEffect(() => {
@@ -329,7 +342,8 @@ export function Dashboard() {
         name: organization?.name ?? 'Business',
         industry: organization?.industry ?? 'Service',
         services: services,
-        aiName: (organization?.settings as any)?.ai_config?.name ?? 'Sarah',
+        aiName: aiSettings.name,
+        customInstructions: aiSettings.instructions,
         onBookingCallback: async (details: any) => {
           if (!organization) return "Error: No organization found.";
           // 1. Find or create customer
@@ -454,8 +468,6 @@ export function Dashboard() {
           {TABS.map((tab) => {
             const Icon = tab.icon;
             const isTabActive = activeTab === tab.id;
-            // Hide super admin if role is not super admin or owner for safety, but allow displaying for tests
-            if (tab.id === 'super-admin' && role !== 'super_admin' && role !== 'owner') return null;
 
             return (
               <button
@@ -797,17 +809,40 @@ export function Dashboard() {
                       <div className="space-y-4 text-xs">
                         <div>
                           <label className="label">AI Assistant Name</label>
-                          <input type="text" className="input" defaultValue="Sarah" />
+                          <input 
+                            type="text" 
+                            className="input" 
+                            value={aiSettings.name}
+                            onChange={(e) => setAiSettings({ ...aiSettings, name: e.target.value })}
+                          />
                         </div>
                         <div>
                           <label className="label">Greeting Message</label>
-                          <textarea className="input" rows={3} defaultValue="Hi! I'm here to help you book an appointment. How can I assist you today?" />
+                          <textarea 
+                            className="input" 
+                            rows={3} 
+                            value={aiSettings.greeting}
+                            onChange={(e) => setAiSettings({ ...aiSettings, greeting: e.target.value })}
+                          />
                         </div>
                         <div>
                           <label className="label">System Training Instructions</label>
-                          <textarea className="input" rows={4} defaultValue="Always be polite. Recommend morning slots first. Do not promise discounts unless configured. Support human escalation for refunds." />
+                          <textarea 
+                            className="input" 
+                            rows={4} 
+                            value={aiSettings.instructions}
+                            onChange={(e) => setAiSettings({ ...aiSettings, instructions: e.target.value })}
+                          />
                         </div>
-                        <button className="btn-primary w-full py-2">Save Instructions</button>
+                        <button 
+                          className="btn-primary w-full py-2"
+                          onClick={() => {
+                            setPlaygroundMessages([{ sender: 'ai', text: aiSettings.greeting }]);
+                            toast('AI settings saved and playground reset!');
+                          }}
+                        >
+                          Save Instructions
+                        </button>
                       </div>
                     </div>
 
@@ -816,7 +851,7 @@ export function Dashboard() {
                       <div className="flex items-center gap-2 border-b border-gray-100 pb-3">
                         <Bot className="h-5 w-5 text-primary-600 animate-bounce" />
                         <div>
-                          <h3 className="text-xs font-semibold text-gray-800">Sarah Sandbox Playground</h3>
+                          <h3 className="text-xs font-semibold text-gray-800">{aiSettings.name} Sandbox Playground</h3>
                           <p className="text-[10px] text-gray-500">Test how the receptionist responds</p>
                         </div>
                       </div>
@@ -1162,39 +1197,6 @@ export function Dashboard() {
                         <label className="label">Preferred Currency Symbol</label>
                         <input type="text" className="input" defaultValue={organization?.currency ?? 'GBP'} disabled />
                       </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 15: SUPER ADMIN */}
-              {activeTab === 'super-admin' && (
-                <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 space-y-6">
-                  <div>
-                    <h2 className="text-base font-bold text-gray-900">Super Admin Operating Panel</h2>
-                    <p className="text-xs text-gray-500">Manage organizations, subscriptions, payments, and system audit logs</p>
-                  </div>
-
-                  <div className="border border-gray-200 rounded-xl overflow-hidden text-xs">
-                    <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 font-bold text-gray-800">Registered SaaS Organizations</div>
-                    <div className="divide-y divide-gray-100">
-                      {[
-                        { id: 'org-1', name: 'Acme Dental Clinic Ltd', plan: 'Growth ($149/mo)', country: 'United Kingdom', status: 'Active' },
-                        { id: 'org-2', name: 'Westside Medspa Partners', plan: 'Pro ($299/mo)', country: 'United States', status: 'Active' },
-                        { id: 'org-3', name: 'Alpha Physiotherapy Practice', plan: 'Starter ($49/mo)', country: 'United Kingdom', status: 'Suspended' }
-                      ].map((orgItem) => (
-                        <div key={orgItem.id} className="p-4 flex items-center justify-between hover:bg-gray-50/50">
-                          <div>
-                            <span className="font-semibold text-gray-800 block">{orgItem.name}</span>
-                            <span className="text-[10px] text-gray-500 mt-0.5 block">{orgItem.country} • Plan: {orgItem.plan}</span>
-                          </div>
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            orgItem.status === 'Active' ? 'bg-success-100 text-success-700' : 'bg-error-100 text-error-700'
-                          }`}>
-                            {orgItem.status}
-                          </span>
-                        </div>
-                      ))}
                     </div>
                   </div>
                 </div>
