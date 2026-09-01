@@ -1,4 +1,4 @@
-﻿/*
+/*
 # ReceptionAI Core Schema â€” Multi-tenant foundation
 
 1. Purpose
