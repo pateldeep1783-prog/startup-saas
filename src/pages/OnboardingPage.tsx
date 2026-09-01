@@ -244,7 +244,9 @@ export function OnboardingPage() {
   async function finishOnboarding() {
     if (!organization) return;
     setLoading(true);
+    const settings = { ...organization.settings, integrations };
     await supabase.from('organizations').update({
+      settings,
       onboarding_completed: true,
       onboarding_step: 7,
     }).eq('id', organization.id);

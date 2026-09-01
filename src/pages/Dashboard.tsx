@@ -89,6 +89,20 @@ export function Dashboard() {
   // State to toggle live AI status
   const [aiEnabled, setAiEnabled] = useState(true);
 
+  // Integrations State (array of connected integration IDs)
+  const [connectedIntegrations, setConnectedIntegrations] = useState<string[]>(
+    organization?.settings?.integrations || []
+  );
+
+  // Available Integrations Definitions
+  const INTEGRATION_DEFINITIONS = [
+    { id: 'google_calendar', name: 'Google Calendar Sync', desc: 'Sync staff bookings to and block slots from Google Calendar' },
+    { id: 'stripe', name: 'Stripe Payments Integration', desc: 'Authorize and execute booking deposit processing' },
+    { id: 'twilio', name: 'Twilio SMS & Messaging', desc: 'Route AI voice receptionist and SMS reminders' },
+    { id: 'whatsapp', name: 'WhatsApp Business API', desc: 'Send templates and automated booking chats' },
+    { id: 'email', name: 'Email', desc: 'Send confirmations and reminders' }
+  ];
+
   // Manual Booking Modal
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<any>(null);
@@ -1139,29 +1153,49 @@ export function Dashboard() {
                   </div>
 
                   <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 text-xs">
-                    {[
-                      { name: 'Google Calendar Sync', desc: 'Sync staff bookings to and block slots from Google Calendar', connected: true },
-                      { name: 'Stripe Payments Integration', desc: 'Authorize and execute booking deposit processing', connected: true },
-                      { name: 'Twilio SMS & Messaging', desc: 'Route AI voice receptionist and SMS reminders', connected: false },
-                      { name: 'WhatsApp Business API', desc: 'Send templates and automated booking chats', connected: false }
-                    ].map((int, idx) => (
-                      <div key={idx} className="border border-gray-200 rounded-xl p-5 bg-white flex flex-col justify-between">
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <h4 className="font-semibold text-gray-800">{int.name}</h4>
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${int.connected ? 'bg-success-100 text-success-700' : 'bg-gray-100 text-gray-600'}`}>
-                              {int.connected ? 'Connected' : 'Disconnected'}
-                            </span>
+                    {INTEGRATION_DEFINITIONS.map((int, idx) => {
+                      const isConnected = connectedIntegrations.includes(int.id);
+                      return (
+                        <div key={idx} className="border border-gray-200 rounded-xl p-5 bg-white flex flex-col justify-between">
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <h4 className="font-semibold text-gray-800">{int.name}</h4>
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isConnected ? 'bg-success-100 text-success-700' : 'bg-gray-100 text-gray-600'}`}>
+                                {isConnected ? 'Connected' : 'Disconnected'}
+                              </span>
+                            </div>
+                            <p className="text-gray-500 text-[11px] leading-relaxed">{int.desc}</p>
                           </div>
-                          <p className="text-gray-500 text-[11px] leading-relaxed">{int.desc}</p>
+                          <div className="mt-4 border-t border-gray-100 pt-4 text-right">
+                            <button 
+                              onClick={async () => {
+                                if (!isConnected) {
+                                  toast.show(`Connecting to ${int.name}...`, 'success');
+                                  setTimeout(async () => {
+                                    const newList = [...connectedIntegrations, int.id];
+                                    setConnectedIntegrations(newList);
+                                    if (organization) {
+                                      await supabase.from('organizations').update({ settings: { ...organization.settings, integrations: newList } }).eq('id', organization.id);
+                                    }
+                                    toast.show(`${int.name} connected successfully!`, 'success');
+                                  }, 1500);
+                                } else {
+                                  const newList = connectedIntegrations.filter(id => id !== int.id);
+                                  setConnectedIntegrations(newList);
+                                  if (organization) {
+                                    await supabase.from('organizations').update({ settings: { ...organization.settings, integrations: newList } }).eq('id', organization.id);
+                                  }
+                                  toast.show(`${int.name} disconnected.`, 'success');
+                                }
+                              }}
+                              className={`px-3 py-1 rounded font-semibold ${isConnected ? 'bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors' : 'bg-primary-600 text-white hover:bg-primary-700 transition-colors'}`}
+                            >
+                              {isConnected ? 'Manage' : 'Connect'}
+                            </button>
+                          </div>
                         </div>
-                        <div className="mt-4 border-t border-gray-100 pt-4 text-right">
-                          <button className={`px-3 py-1 rounded font-semibold ${int.connected ? 'bg-gray-100 text-gray-700' : 'bg-primary-600 text-white'}`}>
-                            {int.connected ? 'Manage' : 'Connect'}
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
