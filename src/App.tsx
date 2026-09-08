@@ -9,6 +9,7 @@ import { PublicBookingPage } from '@/pages/PublicBookingPage';
 import { PublicAppointmentPage } from '@/pages/PublicAppointmentPage';
 import { PublicChatPage } from '@/pages/PublicChatPage';
 import { SuperAdminPage } from '@/pages/SuperAdminPage';
+import { GoogleOAuthProvider } from '@react-oauth/google';
 import type { ReactNode } from 'react';
 
 /** Auth guard — redirects to /login if not authenticated */
@@ -20,39 +21,43 @@ function RequireAuth({ children }: { children: ReactNode }) {
 }
 
 function App() {
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || 'dummy-client-id.apps.googleusercontent.com';
+
   return (
-    <ToastProvider>
-      <AuthProvider>
-        <BrowserRouter>
-          <Routes>
-            {/* Public Landing & Marketing */}
-            <Route path="/" element={<LandingPage />} />
+    <GoogleOAuthProvider clientId={googleClientId}>
+      <ToastProvider>
+        <AuthProvider>
+          <BrowserRouter>
+            <Routes>
+              {/* Public Landing & Marketing */}
+              <Route path="/" element={<LandingPage />} />
 
-            {/* Authentication */}
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/signup" element={<SignUpPage />} />
-            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              {/* Authentication */}
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/signup" element={<SignUpPage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
-            {/* Protected: Onboarding Wizard */}
-            <Route path="/onboarding" element={<RequireAuth><OnboardingPage /></RequireAuth>} />
+              {/* Protected: Onboarding Wizard */}
+              <Route path="/onboarding" element={<RequireAuth><OnboardingPage /></RequireAuth>} />
 
-            {/* Protected: Core B2B SaaS Dashboard Panel */}
-            <Route path="/app/*" element={<RequireAuth><Dashboard /></RequireAuth>} />
+              {/* Protected: Core B2B SaaS Dashboard Panel */}
+              <Route path="/app/*" element={<RequireAuth><Dashboard /></RequireAuth>} />
 
-            {/* Customer Facing Portals (public) */}
-            <Route path="/book/:businessSlug" element={<PublicBookingPage />} />
-            <Route path="/appointment/:bookingId" element={<PublicAppointmentPage />} />
-            <Route path="/ai-chat/:businessSlug" element={<PublicChatPage />} />
+              {/* Customer Facing Portals (public) */}
+              <Route path="/book/:businessSlug" element={<PublicBookingPage />} />
+              <Route path="/appointment/:bookingId" element={<PublicAppointmentPage />} />
+              <Route path="/ai-chat/:businessSlug" element={<PublicChatPage />} />
 
-            {/* Super Admin Route */}
-            <Route path="/super-admin" element={<RequireAuth><SuperAdminPage /></RequireAuth>} />
+              {/* Super Admin Route */}
+              <Route path="/super-admin" element={<RequireAuth><SuperAdminPage /></RequireAuth>} />
 
-            {/* Fallback Catch-All */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </BrowserRouter>
-      </AuthProvider>
-    </ToastProvider>
+              {/* Fallback Catch-All */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </BrowserRouter>
+        </AuthProvider>
+      </ToastProvider>
+    </GoogleOAuthProvider>
   );
 }
 

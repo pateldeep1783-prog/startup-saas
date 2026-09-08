@@ -14,7 +14,7 @@ const supabase = createClient(
 
 const geminiKey = Deno.env.get("GEMINI_API_KEY") || Deno.env.get("VITE_GEMINI_API_KEY") || "";
 
-// ── Shared AI logic ──────────────────────────────────────────
+// --- Shared AI logic (same as email-webhook) ---
 const bookAppointmentDeclaration = {
   name: "book_appointment",
   description: "Books an appointment for the customer and saves their details to the database.",
@@ -62,7 +62,6 @@ Rules for your behavior:
 3. ONCE YOU HAVE THEIR NAME, EMAIL, SERVICE, DATE, AND TIME, YOU MUST CALL THE "book_appointment" function to save it. Do not just say "I have booked it", actually call the function!
 4. If they ask for human assistance, politely inform them that you will transfer them.
 5. Do NOT make up services that are not in the list.
-6. Keep responses SHORT — this is an SMS/WhatsApp conversation, so keep it under 320 characters.
 ${customInstructions ? `\nSpecial Instructions for this business:\n${customInstructions}` : ""}`.trim();
 
   const geminiHistory = history.map((msg) => ({
@@ -90,7 +89,6 @@ ${customInstructions ? `\nSpecial Instructions for this business:\n${customInstr
       let dbResult = "No booking callback configured.";
 
       try {
-        // Find or create customer
         let customerId: string;
         const { data: existing } = await supabase
           .from("customers")
@@ -115,7 +113,6 @@ ${customInstructions ? `\nSpecial Instructions for this business:\n${customInstr
           customerId = newCust.id;
         }
 
-        // Match service
         const service = services.find((s: any) =>
           s.name.toLowerCase().includes(String(args.service_name).toLowerCase()) ||
           String(args.service_name).toLowerCase().includes(s.name.toLowerCase()),
@@ -163,128 +160,146 @@ ${customInstructions ? `\nSpecial Instructions for this business:\n${customInstr
   return result.response.text();
 }
 
-// ── Helpers ──────────────────────────────────────────────────
-
-/** Parse Twilio form-encoded body into a flat key-value object */
-function parseFormBody(body: string): Record<string, string> {
-  const params = new URLSearchParams(body);
-  const result: Record<string, string> = {};
-  for (const [key, value] of params.entries()) {
-    result[key] = value;
-  }
-  return result;
-}
-
-/** Build TwiML MessagingResponse XML */
-function twimlResponse(message: string): string {
-  const escaped = message
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escaped}</Message></Response>`;
-}
-
-// ── Main handler ─────────────────────────────────────────────
-
+/**
+ * Sync unread emails for all organizations that have Gmail connected
+ */
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
 
-  if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
+  // Find organizations with a google_refresh_token
+  const { data: allOrgs } = await supabase.from("organizations").select("*");
+  const connectedOrgs = (allOrgs || []).filter((o: any) => o.channel_config?.google_refresh_token);
+
+  console.log(`Found ${connectedOrgs.length} orgs with Gmail connected.`);
+
+  let processedCount = 0;
+
+  for (const org of connectedOrgs) {
+    try {
+      // 1. In a real application, you would use google_refresh_token to get a new access_token.
+      // Since this is a template/mock, we assume we have a valid mock token or we skip if we can't authenticate.
+      const refreshToken = org.channel_config.google_refresh_token;
+      console.log(`Processing real-time Gmail for org ${org.name}...`);
+
+      const clientId = Deno.env.get("VITE_GOOGLE_CLIENT_ID") || Deno.env.get("GOOGLE_CLIENT_ID") || "";
+      const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET") || "";
+
+      // 1. Get access token from refresh token
+      const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          refresh_token: refreshToken,
+          grant_type: "refresh_token",
+        }),
+      });
+
+      if (!tokenRes.ok) {
+        const errBody = await tokenRes.text();
+        console.error(`Failed to refresh Google token for org ${org.id}:`, errBody);
+        continue;
+      }
+
+      const tokenData = await tokenRes.json();
+      const accessToken = tokenData.access_token;
+
+      // 2. Fetch unread messages
+      const listRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages?q=is:unread", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!listRes.ok) {
+        console.error(`Failed listing messages for org ${org.id}`);
+        continue;
+      }
+
+      const listData = await listRes.json();
+      const messages = listData.messages || [];
+
+      for (const msg of messages) {
+        const msgRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!msgRes.ok) continue;
+        const msgData = await msgRes.json();
+
+        let sender = "";
+        const headers = msgData.payload?.headers || [];
+        for (const header of headers) {
+          if (header.name === "From") sender = header.value;
+        }
+
+        let body = "";
+        if (msgData.payload?.parts) {
+          const part = msgData.payload.parts.find((p: any) => p.mimeType === "text/plain");
+          if (part?.body?.data) {
+            body = new TextDecoder().decode(Uint8Array.from(atob(part.body.data.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0)));
+          }
+        } else if (msgData.payload?.body?.data) {
+          body = new TextDecoder().decode(Uint8Array.from(atob(msgData.payload.body.data.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0)));
+        }
+
+        console.log(`Received unread email for ${org.name} from ${sender}: ${body.substring(0, 50)}...`);
+
+        const orgEmail = org.channel_config?.email_address || "";
+        if (sender && !sender.includes(orgEmail)) {
+          // Fetch services for org
+          const { data: services } = await supabase.from("services").select("*").eq("organization_id", org.id);
+          const aiReply = await generateAIResponse([], org, services || [], body, org.id);
+
+          const rawMessageStr =
+            `To: ${sender}\r\n` +
+            `Subject: Re: Your Inquiry\r\n\r\n` +
+            aiReply;
+
+          const encoder = new TextEncoder();
+          const encodedBytes = encoder.encode(rawMessageStr);
+          let binary = "";
+          for (let i = 0; i < encodedBytes.byteLength; i++) {
+            binary += String.fromCharCode(encodedBytes[i]);
+          }
+          const base64Message = btoa(binary)
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=+$/, "");
+
+          await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              raw: base64Message,
+              threadId: msgData.threadId,
+            }),
+          });
+          console.log(`Sent real-time AI email reply to ${sender}`);
+        }
+
+        // Remove UNREAD label
+        await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}/modify`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            removeLabelIds: ["UNREAD"],
+          }),
+        });
+        processedCount++;
+      }
+    } catch (err: any) {
+      console.error(`Failed to process Gmail sync for org ${org.id}:`, err);
+    }
   }
 
-  try {
-    const rawBody = await req.text();
-    const body = parseFormBody(rawBody);
-
-    const incomingMessage = body.Body || "";
-    const fromNumber = body.From || "";       // e.g. "+447123456789" or "whatsapp:+447123456789"
-    const toNumber = body.To || "";            // The Twilio number that received the message
-
-    // Determine channel: WhatsApp vs SMS based on the From prefix
-    const isWhatsApp = fromNumber.toLowerCase().startsWith("whatsapp:");
-    const channel = isWhatsApp ? "whatsapp" : "sms";
-
-    // Extract the raw phone number (strip "whatsapp:" prefix)
-    const customerPhone = fromNumber.replace(/^whatsapp:/i, "").replace(/^\+/, "");
-
-    if (!incomingMessage || !toNumber) {
-      return new Response(twimlResponse("Sorry, I couldn't process your message."), {
-        headers: { ...corsHeaders, "Content-Type": "text/xml" },
-      });
-    }
-
-    // 1. Resolve which organization owns this Twilio number
-    const { data: org } = await supabase
-      .rpc("get_org_by_phone", { p_phone: toNumber })
-      .maybeSingle();
-
-    if (!org) {
-      return new Response(twimlResponse("Sorry, this number is not configured."), {
-        headers: { ...corsHeaders, "Content-Type": "text/xml" },
-      });
-    }
-
-    // 2. Fetch active services for this org
-    const { data: services } = await supabase
-      .from("services")
-      .select("id, name, duration_minutes, price")
-      .eq("organization_id", org.id)
-      .eq("is_active", true);
-
-    // 3. Upsert conversation + log incoming message, get history
-    const { data: convData, error: convErr } = await supabase.rpc("upsert_webhook_conversation", {
-      p_org_id: org.id,
-      p_channel: channel,
-      p_customer_phone: customerPhone,
-      p_customer_email: null,
-      p_message_text: incomingMessage,
-      p_metadata: { from: fromNumber, to: toNumber, twilio_message_sid: body.MessageSid },
-    });
-
-    if (convErr || !convData) {
-      console.error("Conversation upsert failed:", convErr);
-      return new Response(twimlResponse("Sorry, something went wrong. Please try again."), {
-        headers: { ...corsHeaders, "Content-Type": "text/xml" },
-      });
-    }
-
-    const history = convData.history || [];
-    const conversationId = convData.conversation_id;
-
-    // 4. Generate AI response
-    const aiResponse = await generateAIResponse(
-      history,
-      org,
-      services || [],
-      incomingMessage,
-      org.id,
-    );
-
-    // 5. Log the AI response in conversation_messages
-    await supabase.from("conversation_messages").insert({
-      conversation_id: conversationId,
-      sender_type: "ai",
-      content: aiResponse,
-      metadata: { channel, from: toNumber, to: fromNumber },
-    });
-
-    // 6. Update conversation last_message
-    await supabase.from("conversations")
-      .update({ last_message: aiResponse, last_message_at: new Date().toISOString() })
-      .eq("id", conversationId);
-
-    // 7. Return TwiML so Twilio sends the reply
-    return new Response(twimlResponse(aiResponse), {
-      headers: { ...corsHeaders, "Content-Type": "text/xml" },
-    });
-  } catch (err: any) {
-    console.error("Twilio webhook error:", err);
-    return new Response(
-      twimlResponse("Sorry, I'm having trouble right now. Please try again shortly."),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "text/xml" } },
-    );
-  }
+  return new Response(JSON.stringify({ success: true, processed: processedCount }), {
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 });

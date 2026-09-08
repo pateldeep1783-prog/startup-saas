@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
 import { useToast } from '@/components/ui/Toast';
 import { supabase } from '@/lib/supabase';
+import { useGoogleLogin } from '@react-oauth/google';
 import {
   LayoutDashboard,
   Calendar as CalendarIcon,
@@ -94,13 +95,51 @@ export function Dashboard() {
 
   // Integrations State
   const [connectedIntegrations, setConnectedIntegrations] = useState<string[]>(
-    organization?.settings?.integrations || []
+    Array.isArray(organization?.settings?.integrations) ? organization?.settings?.integrations : []
   );
   const [selectedIntegration, setSelectedIntegration] = useState<{id:string;name:string;desc:string;category:string} | null>(null);
   const [intContactType, setIntContactType] = useState<'email'|'phone'>('email');
   const [intContactValue, setIntContactValue] = useState('');
   const [intApiKey, setIntApiKey] = useState('');
   const [intAccountId, setIntAccountId] = useState('');
+
+  // Google OAuth for Email Integration
+  const googleLogin = useGoogleLogin({
+    flow: 'auth-code',
+    scope: 'https://www.googleapis.com/auth/gmail.modify',
+    onSuccess: async (codeResponse) => {
+      try {
+        if (!organization) throw new Error("No organization found");
+        
+        const res = await fetch('http://localhost:3001/api/exchange-google-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: codeResponse.code, organizationId: organization.id })
+        });
+        
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Failed to exchange token");
+        }
+        
+        const newList = [...connectedIntegrations, 'email'];
+        setConnectedIntegrations(newList);
+        
+        toast('Successfully connected to Gmail API!', 'success');
+        setSelectedIntegration(null);
+      } catch (err: any) {
+        console.error('Failed to connect Google', err);
+        toast(err.message || 'Failed to connect Google account. Please ensure the server is running.', 'error');
+      }
+    },
+    onError: errorResponse => {
+      console.error('Google Sign-In Error:', errorResponse);
+      const errMsg = errorResponse.error === 'invalid_client'
+        ? 'Invalid Google OAuth Client ID. Please set a valid VITE_GOOGLE_CLIENT_ID in .env'
+        : (errorResponse.error || 'Google Sign-In Failed');
+      toast(errMsg, 'error');
+    },
+  });
 
   // Available Integrations Definitions
   const INTEGRATION_DEFINITIONS = [
@@ -116,31 +155,14 @@ export function Dashboard() {
   ];
   const INTEGRATION_CATEGORIES = [...new Set(INTEGRATION_DEFINITIONS.map(i => i.category))];
 
-  async function handleIntegrationConnect() {
-    if (!selectedIntegration || !intContactValue.trim()) {
-      toast.show('Enter an email or phone number first', 'error');
-      return;
-    }
-    const newList = [...connectedIntegrations, selectedIntegration.id];
-    setConnectedIntegrations(newList);
-    if (organization) {
-      await supabase.from('organizations').update({ settings: { ...organization.settings, integrations: newList } }).eq('id', organization.id);
-    }
-    toast.show(`${selectedIntegration.name} connected successfully!`, 'success');
-    setSelectedIntegration(null);
-    setIntContactValue('');
-    setIntApiKey('');
-    setIntAccountId('');
-  }
-
-  async function handleIntegrationDisconnect(id: string, name: string) {
-    const newList = connectedIntegrations.filter(x => x !== id);
-    setConnectedIntegrations(newList);
-    if (organization) {
-      await supabase.from('organizations').update({ settings: { ...organization.settings, integrations: newList } }).eq('id', organization.id);
-    }
-    toast.show(`${name} disconnected.`, 'success');
-  }
+  // Test Email Modal State
+  const [testEmailOpen, setTestEmailOpen] = useState(false);
+  const [testEmailFrom, setTestEmailFrom] = useState('rahul.patel@gmail.com');
+  const [testEmailName, setTestEmailName] = useState('Rahul Patel');
+  const [testEmailSubject, setTestEmailSubject] = useState('Appointment Booking Request');
+  const [testEmailBody, setTestEmailBody] = useState('Hello! I would like to book an appointment for tomorrow at 10:00 AM. Please confirm.');
+  const [testEmailLoading, setTestEmailLoading] = useState(false);
+  const [testEmailResult, setTestEmailResult] = useState<any>(null);
 
   // Manual Booking Modal
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
@@ -154,11 +176,82 @@ export function Dashboard() {
     instructions: "Always be polite. Recommend morning slots first. Do not promise discounts unless configured. Support human escalation for refunds."
   });
 
-  // Local state for playground chatbot
   const [playgroundMessages, setPlaygroundMessages] = useState<any[]>([
     { sender: 'ai', text: aiSettings.greeting }
   ]);
   const [playgroundInput, setPlaygroundInput] = useState('');
+
+  async function handleSendTestEmail(e: React.FormEvent) {
+    e.preventDefault();
+    if (!organization) return;
+    setTestEmailLoading(true);
+    setTestEmailResult(null);
+
+    try {
+      const res = await fetch('http://localhost:3001/api/incoming-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          organizationId: organization.id,
+          from: testEmailFrom,
+          fromName: testEmailName,
+          subject: testEmailSubject,
+          body: testEmailBody
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to process email');
+
+      setTestEmailResult(data);
+      toast('Email processed by Reception AI! Booking created in database.', 'success');
+
+      fetchDashboardData();
+    } catch (err: any) {
+      toast(err.message || 'Error processing email', 'error');
+    } finally {
+      setTestEmailLoading(false);
+    }
+  }
+
+  async function handleIntegrationConnect() {
+    if (!selectedIntegration) return;
+    const emailOrPhone = intContactValue.trim() || user?.email || 'reception@clinic.com';
+
+    if (selectedIntegration.id === 'email') {
+      try {
+        if (organization) {
+          await fetch('http://localhost:3001/api/connect-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ organizationId: organization.id, email: emailOrPhone })
+          });
+        }
+      } catch (e) {
+        console.error('API connect email error', e);
+      }
+    }
+
+    const newList = Array.from(new Set([...connectedIntegrations, selectedIntegration.id]));
+    setConnectedIntegrations(newList);
+    if (organization) {
+      await supabase.from('organizations').update({ settings: { ...organization.settings, integrations: newList } }).eq('id', organization.id);
+    }
+    toast(`${selectedIntegration.name} connected successfully! AI Receptionist active.`, 'success');
+    setSelectedIntegration(null);
+    setIntContactValue('');
+    setIntApiKey('');
+    setIntAccountId('');
+  }
+
+  async function handleIntegrationDisconnect(id: string, name: string) {
+    const newList = connectedIntegrations.filter(x => x !== id);
+    setConnectedIntegrations(newList);
+    if (organization) {
+      await supabase.from('organizations').update({ settings: { ...organization.settings, integrations: newList } }).eq('id', organization.id);
+    }
+    toast(`${name} disconnected.`, 'success');
+  }
   const [isPlaygroundTyping, setIsPlaygroundTyping] = useState(false);
 
   // Redirect to login if user not logged in
@@ -1125,7 +1218,7 @@ export function Dashboard() {
                           </tr>
                         ))}
                       </tbody>
-                    </table>
+</table>
                   </div>
                 </div>
               )}
@@ -1211,18 +1304,23 @@ export function Dashboard() {
                                 <h4 className="font-semibold text-gray-900 text-sm">{int.name}</h4>
                                 <p className="text-gray-500 text-xs mt-1 leading-relaxed">{int.desc}</p>
                               </div>
-                              <div className="mt-4 flex gap-2">
+                              <div className="mt-4 flex flex-wrap gap-2">
                                 {isConnected ? (
                                   <>
                                     <button onClick={() => handleIntegrationDisconnect(int.id, int.name)} className="text-xs text-error-600 hover:underline">Disconnect</button>
-                                    <button onClick={() => toast.show('Sync started', 'success')} className="btn-ghost text-xs flex items-center gap-1"><RefreshCw className="h-3.5 w-3.5" /> Sync</button>
+                                    <button onClick={() => toast('Sync started', 'success')} className="btn-ghost text-xs flex items-center gap-1"><RefreshCw className="h-3.5 w-3.5" /> Sync</button>
+                                    {int.id === 'email' && (
+                                      <button onClick={() => setTestEmailOpen(true)} className="btn-primary text-[11px] flex items-center gap-1 py-1 px-2.5">
+                                        <Mail className="h-3.5 w-3.5" /> Test AI Email
+                                      </button>
+                                    )}
                                   </>
                                 ) : (
                                   <button
                                     onClick={() => {
                                       const needsPhone = int.id === 'sms' || int.id === 'voice' || int.id === 'whatsapp';
                                       setIntContactType(needsPhone ? 'phone' : 'email');
-                                      setIntContactValue('');
+                                      setIntContactValue(int.id === 'email' ? (organization?.channel_config?.email_address || user?.email || '') : '');
                                       setIntApiKey('');
                                       setIntAccountId('');
                                       setSelectedIntegration(int);
@@ -1416,6 +1514,211 @@ export function Dashboard() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Integration Connect Modal */}
+      {selectedIntegration && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={() => setSelectedIntegration(null)} />
+          <div className="relative w-full max-w-md rounded-2xl bg-white shadow-xl animate-scale-in p-6">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3 mb-4">
+              <h3 className="text-sm font-semibold text-gray-900">Connect {selectedIntegration.name}</h3>
+              <button onClick={() => setSelectedIntegration(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="h-4.5 w-4.5" />
+              </button>
+            </div>
+            
+            <div className="space-y-4 text-xs">
+              <p className="text-gray-500">{selectedIntegration.desc}</p>
+              
+              {selectedIntegration.id === 'email' ? (
+                <div className="space-y-4 pt-2">
+                  <div>
+                    <label className="label">Clinic / Reception Email Address</label>
+                    <input
+                      type="email"
+                      className="input"
+                      placeholder="reception@clinic.com or deepdental@gmail.com"
+                      value={intContactValue}
+                      onChange={(e) => setIntContactValue(e.target.value)}
+                    />
+                  </div>
+
+                  <button 
+                    onClick={handleIntegrationConnect}
+                    className="btn-primary w-full py-2.5 flex items-center justify-center gap-2"
+                  >
+                    <Mail className="h-4 w-4" />
+                    Save & Connect Email Account
+                  </button>
+
+                  <div className="border-t border-gray-100 pt-3 mt-3">
+                    <p className="text-gray-500 text-[11px] mb-2">Optional Google Workspace OAuth Login:</p>
+                    <button 
+                      onClick={() => googleLogin()}
+                      className="w-full flex items-center justify-center gap-2 py-2 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 font-medium text-gray-700 transition-colors text-xs"
+                    >
+                      <Mail className="h-3.5 w-3.5 text-red-500" />
+                      Sign in with Google OAuth
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="label">
+                      {intContactType === 'phone' ? 'Phone Number' : 'Email Address'}
+                    </label>
+                    <input
+                      type={intContactType === 'phone' ? 'tel' : 'email'}
+                      className="input"
+                      placeholder={intContactType === 'phone' ? '+1 234 567 8900' : 'hello@company.com'}
+                      value={intContactValue}
+                      onChange={(e) => setIntContactValue(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="label">API Key (Optional)</label>
+                    <input
+                      type="password"
+                      className="input"
+                      placeholder="sk_test_..."
+                      value={intApiKey}
+                      onChange={(e) => setIntApiKey(e.target.value)}
+                    />
+                  </div>
+
+                  <button 
+                    onClick={handleIntegrationConnect}
+                    className="btn-primary w-full py-2.5 mt-2"
+                  >
+                    Complete Connection
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Test AI Email Modal */}
+      {testEmailOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={() => setTestEmailOpen(false)} />
+          <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-xl animate-scale-in p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg">
+                  <Mail className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900">Simulate Customer Email to Reception AI</h3>
+                  <p className="text-[11px] text-gray-500">Test how Reception AI reads incoming email & books appointment</p>
+                </div>
+              </div>
+              <button onClick={() => setTestEmailOpen(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="h-4.5 w-4.5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSendTestEmail} className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Customer Name</label>
+                  <input
+                    type="text"
+                    required
+                    className="input"
+                    value={testEmailName}
+                    onChange={(e) => setTestEmailName(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="label">Customer Email</label>
+                  <input
+                    type="email"
+                    required
+                    className="input"
+                    value={testEmailFrom}
+                    onChange={(e) => setTestEmailFrom(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="label">Email Subject</label>
+                <input
+                  type="text"
+                  required
+                  className="input"
+                  value={testEmailSubject}
+                  onChange={(e) => setTestEmailSubject(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="label">Email Message Body (Customer Booking Request)</label>
+                <textarea
+                  required
+                  rows={3}
+                  className="input"
+                  value={testEmailBody}
+                  onChange={(e) => setTestEmailBody(e.target.value)}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={testEmailLoading}
+                className="btn-primary w-full py-2.5 flex items-center justify-center gap-2"
+              >
+                {testEmailLoading ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Reception AI Reading Email & Booking...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4" />
+                    Send Email to Reception AI
+                  </>
+                )}
+              </button>
+            </form>
+
+            {testEmailResult && (
+              <div className="mt-4 border border-indigo-100 rounded-xl p-4 bg-indigo-50/40 space-y-3 text-xs">
+                <div className="flex items-center gap-2 font-bold text-indigo-900 border-b border-indigo-100 pb-2">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  AI Receptionist Reply & Auto-Booking Result
+                </div>
+                <div>
+                  <span className="font-semibold text-gray-700 block mb-1">AI Automated Email Response:</span>
+                  <p className="p-3 bg-white border border-gray-200 rounded-lg text-gray-800 leading-relaxed italic">
+                    "{testEmailResult.aiReply}"
+                  </p>
+                </div>
+
+                {testEmailResult.booking ? (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-900 font-medium">
+                    <span className="font-bold">✓ Booking Automatically Saved to Database:</span>
+                    <ul className="mt-1 space-y-0.5 text-[11px]">
+                      <li>• Service: {testEmailResult.booking.service?.name || 'Consultation'}</li>
+                      <li>• Date & Time: {new Date(testEmailResult.booking.start_time).toLocaleString()}</li>
+                      <li>• Status: {testEmailResult.booking.status}</li>
+                      <li>• Booking ID: {testEmailResult.booking.id}</li>
+                    </ul>
+                  </div>
+                ) : (
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-[11px]">
+                    ℹ️ AI Replied to customer. Include date, time, and service name to trigger automatic database booking!
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

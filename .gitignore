@@ -21,3 +21,6 @@ dist-ssr
 *.sln
 *.sw?
 .env
+test-*.mjs
+Dashboard_orig.tsx
+supabase/.temp/

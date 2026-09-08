@@ -87,7 +87,7 @@ ${context.customInstructions ? `\nSpecial Instructions for this business:\n${con
 
     const chatSession = model.startChat({
       history: history,
-      systemInstruction: { parts: [{ text: systemInstruction }] },
+      systemInstruction: systemInstruction,
       tools: [{ functionDeclarations: [bookAppointmentDeclaration] }],
     });
 
