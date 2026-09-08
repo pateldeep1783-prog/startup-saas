@@ -1,6 +1,25 @@
+import fs from 'fs';
+import path from 'path';
 import { TokenService } from './TokenService.mjs';
 import { GmailProvider } from './GmailProvider.mjs';
 import { GmailOAuthService } from './GmailOAuthService.mjs';
+
+const STORE_PATH = path.join(process.cwd(), 'email_store.json');
+
+function loadLocalStore() {
+  try {
+    if (fs.existsSync(STORE_PATH)) {
+      return JSON.parse(fs.readFileSync(STORE_PATH, 'utf8'));
+    }
+  } catch (e) {}
+  return {};
+}
+
+function saveLocalStore(data) {
+  try {
+    fs.writeFileSync(STORE_PATH, JSON.stringify(data, null, 2), 'utf8');
+  } catch (e) {}
+}
 
 /**
  * EmailIntegrationService
@@ -65,6 +84,20 @@ export class EmailIntegrationService {
       }
     } catch (err) {
       // Ignore table missing error and fallback
+    }
+
+    // Fallback to local store
+    const localStore = loadLocalStore();
+    const localKey = `${organizationId}:${provider}`;
+    if (localStore[localKey] && localStore[localKey].status !== 'disconnected') {
+      const item = localStore[localKey];
+      return {
+        id: item.id || `local-${organizationId}`,
+        provider: provider,
+        status: item.status || 'connected',
+        email_address: item.email_address || null,
+        last_synced_at: item.last_synced_at || null,
+      };
     }
 
     // Fallback to organizations.channel_config
@@ -219,9 +252,27 @@ export class EmailIntegrationService {
         })
         .eq('id', organizationId);
 
+      // Persistent Local Store Save
+      const currentStore = loadLocalStore();
+      const localKey = `${organizationId}:gmail`;
+      currentStore[localKey] = {
+        id: `integration-${organizationId}`,
+        organization_id: organizationId,
+        provider: 'gmail',
+        provider_account_id: profile.providerAccountId,
+        email_address: profile.emailAddress,
+        access_token_encrypted: accessTokenEncrypted,
+        refresh_token_encrypted: finalRefreshTokenEncrypted,
+        token_expires_at: tokenResult.expiresAt.toISOString(),
+        scopes: tokenResult.scopes,
+        status: 'connected',
+        last_synced_at: payload.last_synced_at,
+      };
+      saveLocalStore(currentStore);
+
       if (!savedRecord) {
         savedRecord = {
-          id: `org-channel-${organizationId}`,
+          id: `integration-${organizationId}`,
           provider: 'gmail',
           email_address: profile.emailAddress,
           status: 'connected',
@@ -267,6 +318,12 @@ export class EmailIntegrationService {
         .maybeSingle();
       integration = data;
     } catch (e) {}
+
+    const localStore = loadLocalStore();
+    const localKey = `${organizationId}:${provider}`;
+    if (!integration && localStore[localKey]) {
+      integration = localStore[localKey];
+    }
 
     if (integration) {
       if (integration.status === 'disconnected') {
@@ -373,16 +430,18 @@ export class EmailIntegrationService {
       console.warn('[EmailIntegrationService] Revoke warning during disconnect:', revokeErr.message);
     }
 
-    // Delete or set to disconnected and clear credentials
-    const { error: dbErr } = await this.supabase
-      .from('email_integrations')
-      .delete()
-      .eq('id', integration.id);
+    // Delete from local store
+    const store = loadLocalStore();
+    delete store[`${organizationId}:${provider}`];
+    saveLocalStore(store);
 
-    if (dbErr) {
-      console.error('[EmailIntegrationService] Disconnect DB error:', dbErr);
-      throw new Error('Failed to remove integration record.');
-    }
+    try {
+      await this.supabase
+        .from('email_integrations')
+        .delete()
+        .eq('organization_id', organizationId)
+        .eq('provider', provider);
+    } catch (e) {}
 
     await this.logAudit(organizationId, actorId, 'gmail_disconnected', {
       email_address: integration.email_address,
