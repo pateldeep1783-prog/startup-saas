@@ -337,15 +337,17 @@ const genAI = new GoogleGenerativeAI(process.env.VITE_GEMINI_API_KEY);
 
 async function generateAIResponse(org, services, currentMessage, orgId, history = []) {
   if (!process.env.VITE_GEMINI_API_KEY) return "AI systems offline.";
-  const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
 
-  const servicesList = (services && services.length > 0)
-    ? services.map(s => `- ${s.name} (${s.duration_minutes} mins, ${s.price > 0 ? s.price : 'Free'})`).join("\n")
-    : "- General Consultation (30 mins, Free)\n- Standard Checkup (45 mins, Free)";
-  const aiName = org?.settings?.ai_config?.name || "Sarah";
-  const customInstructions = org?.settings?.ai_config?.instructions || "";
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
 
-  const systemInstruction = `You are ${aiName}, a helpful AI receptionist for ${org?.name || 'our business'}, which is in the ${org?.industry || 'Healthcare'} industry.
+    const servicesList = (services && services.length > 0)
+      ? services.map(s => `- ${s.name} (${s.duration_minutes} mins, ${s.price > 0 ? s.price : 'Free'})`).join("\n")
+      : "- General Consultation (30 mins, Free)\n- Standard Checkup (45 mins, Free)";
+    const aiName = org?.settings?.ai_config?.name || "Sarah";
+    const customInstructions = org?.settings?.ai_config?.instructions || "";
+
+    const systemInstruction = `You are ${aiName}, a helpful AI receptionist for ${org?.name || 'our business'}, which is in the ${org?.industry || 'Healthcare'} industry.
 Your goal is to assist customers, answer their questions, and help them book an appointment based on this email.
 Here is the list of services we offer:
 ${servicesList}
@@ -358,87 +360,91 @@ Rules for your behavior:
 5. ALWAYS CALL THE "book_appointment" FUNCTION TO SAVE THE BOOKING.
 ${customInstructions ? `\nSpecial Instructions for this business:\n${customInstructions}` : ""}`.trim();
 
-  const chatSession = model.startChat({
-    history: [{ role: "user", parts: [{ text: "Hello" }] }],
-    systemInstruction: { parts: [{ text: systemInstruction }] },
-    tools: [{ functionDeclarations: [bookAppointmentDeclaration] }],
-  });
+    const chatSession = model.startChat({
+      history: [{ role: "user", parts: [{ text: "Hello" }] }],
+      systemInstruction: { parts: [{ text: systemInstruction }] },
+      tools: [{ functionDeclarations: [bookAppointmentDeclaration] }],
+    });
 
-  const result = await chatSession.sendMessage(currentMessage);
-  const functionCalls = result.response.functionCalls();
+    const result = await chatSession.sendMessage(currentMessage);
+    const functionCalls = result.response.functionCalls();
 
-  if (functionCalls && functionCalls.length > 0) {
-    const call = functionCalls[0];
-    if (call.name === "book_appointment") {
-      const args = call.args;
-      console.log("Gemini called book_appointment with args:", args);
-      let dbResult = "Failed.";
-      try {
-        let customerId;
-        const custEmail = args.customer_email || "customer@example.com";
-        const custName = args.customer_name || "Valued Customer";
+    if (functionCalls && functionCalls.length > 0) {
+      const call = functionCalls[0];
+      if (call.name === "book_appointment") {
+        const args = call.args;
+        console.log("Gemini called book_appointment with args:", args);
+        let dbResult = "Failed.";
+        try {
+          let customerId;
+          const custEmail = args.customer_email || "customer@example.com";
+          const custName = args.customer_name || "Valued Customer";
 
-        const { data: existing } = await supabase.from("customers").select("id").eq("organization_id", orgId).eq("email", custEmail).maybeSingle();
-        if (existing && existing.id) {
-          customerId = existing.id;
-        } else {
-          const { data: newCust, error: custErr } = await supabase.from("customers").insert({ organization_id: orgId, name: custName, email: custEmail, status: "lead" }).select().single();
-          if (custErr || !newCust) {
-            console.error("Customer insert error:", custErr);
-            const { data: fallbackCust } = await supabase.from("customers").select("id").eq("organization_id", orgId).limit(1).maybeSingle();
-            customerId = fallbackCust?.id || null;
+          const { data: existing } = await supabase.from("customers").select("id").eq("organization_id", orgId).eq("email", custEmail).maybeSingle();
+          if (existing && existing.id) {
+            customerId = existing.id;
           } else {
-            customerId = newCust.id;
+            const { data: newCust, error: custErr } = await supabase.from("customers").insert({ organization_id: orgId, name: custName, email: custEmail, status: "lead" }).select().single();
+            if (custErr || !newCust) {
+              console.error("Customer insert error:", custErr);
+              const { data: fallbackCust } = await supabase.from("customers").select("id").eq("organization_id", orgId).limit(1).maybeSingle();
+              customerId = fallbackCust?.id || null;
+            } else {
+              customerId = newCust.id;
+            }
           }
-        }
 
-        let service = null;
-        if (services && services.length > 0) {
-          service = services.find(s => s.name.toLowerCase().includes(String(args.service_name).toLowerCase()) || String(args.service_name).toLowerCase().includes(s.name.toLowerCase())) || services[0];
-        }
+          let service = null;
+          if (services && services.length > 0) {
+            service = services.find(s => s.name.toLowerCase().includes(String(args.service_name).toLowerCase()) || String(args.service_name).toLowerCase().includes(s.name.toLowerCase())) || services[0];
+          }
 
-        if (!service) {
-          const { data: sysServices } = await supabase.from("services").select("*").eq("organization_id", orgId);
-          service = (sysServices && sysServices.length > 0) ? sysServices[0] : null;
-        }
+          if (!service) {
+            const { data: sysServices } = await supabase.from("services").select("*").eq("organization_id", orgId);
+            service = (sysServices && sysServices.length > 0) ? sysServices[0] : null;
+          }
 
-        const start = parseAppointmentDate(args.date, args.time);
-        const duration = service?.duration_minutes || 30;
-        const end = new Date(start.getTime() + duration * 60000);
-        const price = service?.price || 0;
+          const start = parseAppointmentDate(args.date, args.time);
+          const duration = service?.duration_minutes || 30;
+          const end = new Date(start.getTime() + duration * 60000);
+          const price = service?.price || 0;
 
-        const validServiceId = (service?.id && String(service.id).length > 20) ? service.id : null;
-        const validCustomerId = (customerId && String(customerId).length > 20) ? customerId : null;
+          const validServiceId = (service?.id && String(service.id).length > 20) ? service.id : null;
+          const validCustomerId = (customerId && String(customerId).length > 20) ? customerId : null;
 
-        console.log(`Inserting booking for org: ${orgId}, customer: ${validCustomerId}, service: ${validServiceId}, start: ${start.toISOString()}`);
+          console.log(`Inserting booking for org: ${orgId}, customer: ${validCustomerId}, service: ${validServiceId}, start: ${start.toISOString()}`);
 
-        const { data: createdBookingData, error: bookErr } = await supabase.from("bookings").insert({
-          organization_id: orgId,
-          customer_id: validCustomerId,
-          service_id: validServiceId,
-          start_time: start.toISOString(),
-          end_time: end.toISOString(),
-          status: "pending",
-          source: "ai_chat",
-          price: price,
-        }).select().maybeSingle();
+          const { data: createdBookingData, error: bookErr } = await supabase.from("bookings").insert({
+            organization_id: orgId,
+            customer_id: validCustomerId,
+            service_id: validServiceId,
+            start_time: start.toISOString(),
+            end_time: end.toISOString(),
+            status: "pending",
+            source: "ai_chat",
+            price: price,
+          }).select().maybeSingle();
 
-        if (bookErr) {
-          console.error("Booking DB insert notice (RLS):", bookErr.message);
+          if (bookErr) {
+            console.error("Booking DB insert notice (RLS):", bookErr.message);
+            dbResult = "Success! (Recorded)";
+          } else {
+            console.log("Successfully created booking in DB:", createdBookingData?.id);
+            dbResult = "Success! Booking created with ID " + (createdBookingData?.id || "ai-booking");
+          }
+        } catch (err) {
+          console.error("book_appointment exception:", err);
           dbResult = "Success! (Recorded)";
-        } else {
-          console.log("Successfully created booking in DB:", createdBookingData?.id);
-          dbResult = "Success! Booking created with ID " + (createdBookingData?.id || "ai-booking");
         }
-      } catch (err) {
-        console.error("book_appointment exception:", err);
-        dbResult = "Success! (Recorded)";
+        
+        return `Hello ${args.customer_name || 'there'}! I have successfully booked your appointment for ${args.service_name || 'service'} on ${args.date || 'the requested date'} at ${args.time || '10:00 AM'}. A confirmation has been recorded for your clinic visit.`;
       }
-      
-      return `Hello ${args.customer_name || 'there'}! I have successfully booked your appointment for ${args.service_name || 'service'} on ${args.date || 'the requested date'} at ${args.time || '10:00 AM'}. A confirmation has been recorded for your clinic visit.`;
     }
+    return result.response.text();
+  } catch (err) {
+    console.error("[generateAIResponse] Exception / Rate Limit:", err.message);
+    return `Hello! Thank you for reaching out to Deep Dental's Clinic. We have received your appointment inquiry and will be happy to assist you. Please reply with your preferred date and time for your visit.`;
   }
-  return result.response.text();
 }
 
 async function pollGmail() {
@@ -521,27 +527,47 @@ async function pollGmail() {
               body = Buffer.from(msgData.data.payload.body.data, 'base64').toString('utf-8');
             }
 
-            console.log(`[GmailAI] Processing email from "${sender}" with subject "${subject}"...`);
+            console.log(`[GmailAI] Inspecting email from "${sender}" with subject "${subject}"...`);
 
-            if (sender && !sender.includes(ownEmail)) {
-              const aiReply = await generateAIResponse(org, org.services || [], `Sender: ${sender}\nSubject: ${subject}\n\nBody: ${body}`, orgId);
-              console.log(`[GmailAI] AI Reply generated: "${aiReply.substring(0, 80)}..."`);
+            const senderLower = sender.toLowerCase();
+            const subjectLower = subject.toLowerCase();
+            const ownEmailLower = (ownEmail || '').toLowerCase();
 
-              const replySubject = subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`;
-              const rawMessage = Buffer.from(
-                `To: ${sender}\r\n` +
-                `Subject: ${replySubject}\r\n` +
-                `In-Reply-To: ${msgData.data.id}\r\n\r\n` +
-                aiReply
-              ).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+            const isSystemEmail = [
+              'no-reply', 'noreply', 'mailer-daemon', 'google', 'pinterest',
+              'github', 'adsense', 'chatgpt', 'mermaid', 'cloudinary',
+              'security alert', 'delivery status', 'bounce'
+            ].some(kw => senderLower.includes(kw) || subjectLower.includes(kw));
 
-              await gmail.users.messages.send({
+            if (isSystemEmail || (ownEmailLower && senderLower.includes(ownEmailLower))) {
+              console.log(`[GmailAI] Skipping system/automated email from "${sender}".`);
+              await gmail.users.messages.modify({
                 userId: 'me',
-                requestBody: { raw: rawMessage, threadId: msgData.data.threadId }
+                id: msg.id,
+                requestBody: { removeLabelIds: ['UNREAD'] }
               });
-
-              console.log(`[GmailAI] Successfully sent AI reply email to ${sender}`);
+              continue;
             }
+
+            console.log(`[GmailAI] Processing genuine customer inquiry from "${sender}" with subject "${subject}"...`);
+
+            const aiReply = await generateAIResponse(org, org.services || [], `Sender: ${sender}\nSubject: ${subject}\n\nBody: ${body}`, orgId);
+            console.log(`[GmailAI] AI Reply generated: "${aiReply.substring(0, 80)}..."`);
+
+            const replySubject = subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`;
+            const rawMessage = Buffer.from(
+              `To: ${sender}\r\n` +
+              `Subject: ${replySubject}\r\n` +
+              `In-Reply-To: ${msgData.data.id}\r\n\r\n` +
+              aiReply
+            ).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+            await gmail.users.messages.send({
+              userId: 'me',
+              requestBody: { raw: rawMessage, threadId: msgData.data.threadId }
+            });
+
+            console.log(`[GmailAI] Successfully sent AI reply email to ${sender}`);
 
             await gmail.users.messages.modify({
               userId: 'me',

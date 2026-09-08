@@ -5,15 +5,17 @@
     "provider": "gmail",
     "provider_account_id": "pateldeep1783@gmail.com",
     "email_address": "pateldeep1783@gmail.com",
-    "access_token_encrypted": "3950ffb1fee6741b6ae328ce:4b5a1fae6df147ef87e965e1726f70f2:c792fd68218cf2538a36272e56b4fe5947303ac2ea64d5de7d5d6ec85ad8e17aaac4f01583a98971fd64578e10d67df57d1f4b59bdf68e9cccbd7c627704198dd410761350d0970de0bb17ad9ef2d5bd5653452185f433e18cfcd5eaab629a8e62fa35cfc8652ebe49a32787819dd777fb93869c0c70c2e69cbd15e2705a68881c06241d5a6bc4ccd87be6b448bef717cf62e7043e84cdb695d9eb477c16024054d30294d4ee7725e12f13fd7601f7084e106f3ded4ed7eb36bd2c77557b021cdd6088b64df7e7c0a3ef96a06ef693af3c62ebdd07986f1b2eb8fa0f5a2305093a93fd976aab7a11b3d1759aaabdf6631d4e2269c188b1e00121e8c895",
-    "refresh_token_encrypted": "9926593f661ff70ba71ff601:6f3b4a0285d5a60fd12d74aba841ec3a:0db5c51a3c6d4f2ab3c84a6d3e92384af9abfc86953331ee78a660bfc48db6976d0c31129408af38c6e4e745f374fda2b87749245344196e266e713395648e5ce1ffcd81b375718ce4fadff34595552032b9fee3e8d92321787be82e510e691fe8deab93a97a19",
-    "token_expires_at": "2026-09-08T11:59:25.791Z",
+    "access_token_encrypted": "2913adcebac90b7622fb1c70:45d8f2228a51e1b6f92d8ef1937cf922:a0bf72dd621d8bff2720e893c27998a5b05760f961fbd051bace853bf5e54a5ca8a17b62ca023a113797bda4de715c0ae16865bfeff50cb78576bbaeac6492ee0a49e4fc290aa4cb76f188c371d9cbe09100e135ef4242456ff1dc741e8d8c79d9b7d03259f7e6120a2f60f5c09370520e883287e72f2b0b7a2cb4d739a351aeb02c01671d60c2249f189003163d42f23fde3ef1a02da2c86451bbb7ec69a5005a723495822d5110da33dbebfdf9464a1d4f99b1a457967e2382c68c6ac987276c090248af0adbcb6094810d50c9e9330fc597d0bd129e883fcb8401dc4c94fd58c9b7fdf4627acaea30c4d016403e71c3c4167fb470069ba5c70366ab",
+    "refresh_token_encrypted": "3d41b41305041d843cf2f99c:6c11dea048f269035cdf81b09de0390c:8c33ac5eeaffef7e9d31e35ffb6c04d4c45e13e2037b23443ff332b88280882ea77c8f65414b052ced3d36b7d5b9db3bfa201cb9f241f0a0d61868128f596dc82253cb7aae498c43862730c8cbbaaf557f2a31c5d1c636df4ea8d9dd565f6e7ee042f73055cd80",
+    "token_expires_at": "2026-09-08T12:12:44.882Z",
     "scopes": [
       "https://www.googleapis.com/auth/gmail.readonly",
       "https://www.googleapis.com/auth/userinfo.email",
-      "openid"
+      "openid",
+      "https://www.googleapis.com/auth/gmail.modify",
+      "https://www.googleapis.com/auth/gmail.send"
     ],
     "status": "connected",
-    "last_synced_at": "2026-09-08T10:59:27.322Z"
+    "last_synced_at": "2026-09-08T11:12:46.395Z"
   }
 }
