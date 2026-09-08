@@ -13,9 +13,9 @@ app.use(cors());
 app.use(express.json());
 
 const oauth2Client = new google.auth.OAuth2(
-  process.env.VITE_GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
-  'postmessage'
+  process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3001/api/integrations/email/gmail/callback'
 );
 
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
