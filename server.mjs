@@ -444,16 +444,83 @@ async function pollGmail() {
   try {
     const { data: integrations, error } = await supabase
       .from('email_integrations')
-      .select('organization_id')
+      .select('organization_id, email_address')
       .eq('status', 'connected');
 
     if (error || !integrations || integrations.length === 0) return;
 
     for (const item of integrations) {
+      const orgId = item.organization_id;
       try {
-        await emailIntegrationService.syncMailbox(item.organization_id);
+        const accessToken = await emailIntegrationService.getValidAccessToken(orgId);
+        const { data: org } = await supabase.from('organizations').select('*, services(*)').eq('id', orgId).single();
+        if (!org) continue;
+
+        const oauth2Client = new google.auth.OAuth2();
+        oauth2Client.setCredentials({ access_token: accessToken });
+        const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+        const res = await gmail.users.messages.list({ userId: 'me', q: 'is:unread' });
+        if (res.data.messages && res.data.messages.length > 0) {
+          console.log(`[GmailAI] Found ${res.data.messages.length} unread email(s) for Org: ${orgId}`);
+
+          for (const msg of res.data.messages) {
+            const msgData = await gmail.users.messages.get({ userId: 'me', id: msg.id });
+            const headers = msgData.data.payload.headers || [];
+
+            let sender = '';
+            let subject = 'Appointment Inquiry';
+            for (const h of headers) {
+              if (h.name.toLowerCase() === 'from') sender = h.value;
+              if (h.name.toLowerCase() === 'subject') subject = h.value;
+            }
+
+            let body = '';
+            if (msgData.data.payload.parts) {
+              const part = msgData.data.payload.parts.find(p => p.mimeType === 'text/plain');
+              if (part && part.body?.data) body = Buffer.from(part.body.data, 'base64').toString('utf-8');
+            } else if (msgData.data.payload.body?.data) {
+              body = Buffer.from(msgData.data.payload.body.data, 'base64').toString('utf-8');
+            }
+
+            console.log(`[GmailAI] Processing email from "${sender}" with subject "${subject}"...`);
+
+            const ownEmail = item.email_address || '';
+            if (sender && !sender.includes(ownEmail)) {
+              const aiReply = await generateAIResponse(org, org.services, `Subject: ${subject}\n\nBody: ${body}`, orgId);
+              console.log(`[GmailAI] AI Reply generated: "${aiReply.substring(0, 80)}..."`);
+
+              const replySubject = subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`;
+              const rawMessage = Buffer.from(
+                `To: ${sender}\r\n` +
+                `Subject: ${replySubject}\r\n` +
+                `In-Reply-To: ${msgData.data.id}\r\n\r\n` +
+                aiReply
+              ).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+              await gmail.users.messages.send({
+                userId: 'me',
+                requestBody: { raw: rawMessage, threadId: msgData.data.threadId }
+              });
+
+              console.log(`[GmailAI] Successfully sent AI reply email to ${sender}`);
+            }
+
+            await gmail.users.messages.modify({
+              userId: 'me',
+              id: msg.id,
+              requestBody: { removeLabelIds: ['UNREAD'] }
+            });
+          }
+        }
+
+        await supabase
+          .from('email_integrations')
+          .update({ last_synced_at: new Date().toISOString() })
+          .eq('organization_id', orgId);
+
       } catch (err) {
-        console.error(`[BackgroundSync] Sync failed for org ${item.organization_id}:`, err.message);
+        console.error(`[GmailAI] Sync error for org ${orgId}:`, err.message);
       }
     }
   } catch (err) {
