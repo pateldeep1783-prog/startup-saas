@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { google } from 'googleapis';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { EmailIntegrationService } from './src/services/email/EmailIntegrationService.mjs';
 
 dotenv.config();
 
@@ -22,6 +23,141 @@ const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
   SUPABASE_SERVICE_KEY
 );
+
+const emailIntegrationService = new EmailIntegrationService(supabase);
+
+async function resolveOrganizationContext(req) {
+  const authHeader = req.headers.authorization;
+  let userId = null;
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (user && !error) {
+      userId = user.id;
+    }
+  }
+
+  let requestedOrgId = req.query?.organization_id || req.headers['x-organization-id'] || req.body?.organization_id;
+
+  if (userId) {
+    const { data: member } = await supabase
+      .from('organization_members')
+      .select('organization_id')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (requestedOrgId && member && member.organization_id !== requestedOrgId) {
+      throw new Error('Unauthorized organization access.');
+    }
+    return { organizationId: requestedOrgId || member?.organization_id, userId };
+  }
+
+  if (requestedOrgId) {
+    return { organizationId: requestedOrgId, userId: null };
+  }
+
+  const { data: firstOrg } = await supabase.from('organizations').select('id').limit(1).maybeSingle();
+  return { organizationId: firstOrg?.id, userId: null };
+}
+
+// -------------------------------------------------------------
+// EMAIL INTEGRATION API ENDPOINTS
+// -------------------------------------------------------------
+
+// GET /api/integrations/email - Returns safe status
+app.get('/api/integrations/email', async (req, res) => {
+  try {
+    const { organizationId } = await resolveOrganizationContext(req);
+    if (!organizationId) {
+      return res.status(400).json({ error: 'Organization ID is required.' });
+    }
+    const status = await emailIntegrationService.getStatus(organizationId, 'gmail');
+    res.json(status);
+  } catch (err) {
+    console.error('API /api/integrations/email error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/integrations/email/gmail/connect - Returns authorization URL & state
+app.get('/api/integrations/email/gmail/connect', async (req, res) => {
+  try {
+    const { organizationId, userId } = await resolveOrganizationContext(req);
+    if (!organizationId) {
+      return res.status(400).json({ error: 'Organization ID is required.' });
+    }
+    const result = await emailIntegrationService.initiateConnect(organizationId, userId);
+    res.json(result);
+  } catch (err) {
+    console.error('API /api/integrations/email/gmail/connect error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/integrations/email/gmail/callback - OAuth Callback from Google
+app.get('/api/integrations/email/gmail/callback', async (req, res) => {
+  const { code, state, error: oauthError } = req.query;
+
+  if (oauthError) {
+    console.warn('[OAuth Callback] Google returned error:', oauthError);
+    return res.redirect(`http://localhost:5173/app?error=oauth_denied&message=${encodeURIComponent(oauthError)}`);
+  }
+
+  try {
+    const result = await emailIntegrationService.handleCallback(code, state);
+    res.redirect(`http://localhost:5173/app?email_connected=true&email=${encodeURIComponent(result.email_address)}`);
+  } catch (err) {
+    console.error('[OAuth Callback] Error handling callback:', err.message);
+    res.redirect(`http://localhost:5173/app?error=oauth_failed&message=${encodeURIComponent(err.message)}`);
+  }
+});
+
+// DELETE /api/integrations/email/gmail - Disconnect Gmail connection
+app.delete('/api/integrations/email/gmail', async (req, res) => {
+  try {
+    const { organizationId, userId } = await resolveOrganizationContext(req);
+    if (!organizationId) {
+      return res.status(400).json({ error: 'Organization ID is required.' });
+    }
+    const result = await emailIntegrationService.disconnect(organizationId, userId, 'gmail');
+    res.json(result);
+  } catch (err) {
+    console.error('API DELETE /api/integrations/email/gmail error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/integrations/email/gmail/refresh - Refresh access token
+app.post('/api/integrations/email/gmail/refresh', async (req, res) => {
+  try {
+    const { organizationId } = await resolveOrganizationContext(req);
+    if (!organizationId) {
+      return res.status(400).json({ error: 'Organization ID is required.' });
+    }
+    await emailIntegrationService.getValidAccessToken(organizationId, 'gmail');
+    res.json({ success: true, message: 'Access token refreshed successfully.' });
+  } catch (err) {
+    console.error('API POST /api/integrations/email/gmail/refresh error:', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/integrations/email/gmail/sync - Sync mailbox metadata
+app.post('/api/integrations/email/gmail/sync', async (req, res) => {
+  try {
+    const { organizationId, userId } = await resolveOrganizationContext(req);
+    if (!organizationId) {
+      return res.status(400).json({ error: 'Organization ID is required.' });
+    }
+    const result = await emailIntegrationService.syncMailbox(organizationId, userId, 'gmail');
+    res.json(result);
+  } catch (err) {
+    console.error('API POST /api/integrations/email/gmail/sync error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 app.post('/api/exchange-google-token', async (req, res) => {
   const { code, organizationId } = req.body;
@@ -305,71 +441,28 @@ ${customInstructions ? `\nSpecial Instructions for this business:\n${customInstr
 }
 
 async function pollGmail() {
-  console.log("Checking for new emails...");
-  const { data: allOrgs } = await supabase.from("organizations").select("*, services(*)");
-  const connectedOrgs = (allOrgs || []).filter(o => o.channel_config?.google_refresh_token);
+  try {
+    const { data: integrations, error } = await supabase
+      .from('email_integrations')
+      .select('organization_id')
+      .eq('status', 'connected');
 
-  for (const org of connectedOrgs) {
-    try {
-      const oauth2ClientForOrg = new google.auth.OAuth2(process.env.VITE_GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET);
-      oauth2ClientForOrg.setCredentials({ refresh_token: org.channel_config.google_refresh_token });
-      
-      const gmail = google.gmail({ version: 'v1', auth: oauth2ClientForOrg });
-      const res = await gmail.users.messages.list({ userId: 'me', q: 'is:unread' });
-      
-      if (res.data.messages && res.data.messages.length > 0) {
-        for (const msg of res.data.messages) {
-          const msgData = await gmail.users.messages.get({ userId: 'me', id: msg.id });
-          
-          let sender = '';
-          const headers = msgData.data.payload.headers;
-          for(const header of headers) {
-            if(header.name === 'From') sender = header.value;
-          }
-          
-          let body = '';
-          if (msgData.data.payload.parts) {
-            const part = msgData.data.payload.parts.find(p => p.mimeType === 'text/plain');
-            if (part && part.body.data) body = Buffer.from(part.body.data, 'base64').toString('utf-8');
-          } else if (msgData.data.payload.body?.data) {
-            body = Buffer.from(msgData.data.payload.body.data, 'base64').toString('utf-8');
-          }
+    if (error || !integrations || integrations.length === 0) return;
 
-          console.log(`Received unread email from ${sender}: ${body.substring(0, 50)}...`);
-          
-          const orgEmail = org.channel_config.email_address || "";
-          if(sender && !sender.includes(orgEmail)) {
-             const aiReply = await generateAIResponse(org, org.services, body, org.id);
-             console.log("AI Reply:", aiReply);
-             
-             const rawMessage = Buffer.from(
-                `To: ${sender}\r\n` +
-                `Subject: Re: Your Inquiry\r\n\r\n` +
-                aiReply
-             ).toString("base64").replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-             
-             await gmail.users.messages.send({
-               userId: 'me',
-               requestBody: { raw: rawMessage, threadId: msgData.data.threadId }
-             });
-             console.log("Reply sent!");
-          }
-          
-          await gmail.users.messages.modify({
-            userId: 'me',
-            id: msg.id,
-            requestBody: { removeLabelIds: ['UNREAD'] }
-          });
-        }
+    for (const item of integrations) {
+      try {
+        await emailIntegrationService.syncMailbox(item.organization_id);
+      } catch (err) {
+        console.error(`[BackgroundSync] Sync failed for org ${item.organization_id}:`, err.message);
       }
-    } catch (err) {
-      console.error(`Failed syncing for org ${org.id}:`, err.message);
     }
+  } catch (err) {
+    // Silently ignore table missing errors during initial setup
   }
 }
 
-setInterval(pollGmail, 15000);
-setTimeout(pollGmail, 1000);
+setInterval(pollGmail, 30000);
+setTimeout(pollGmail, 2000);
 
 app.listen(3001, () => {
   console.log('Backend server running on http://localhost:3001');

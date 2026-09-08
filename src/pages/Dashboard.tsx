@@ -103,43 +103,139 @@ export function Dashboard() {
   const [intApiKey, setIntApiKey] = useState('');
   const [intAccountId, setIntAccountId] = useState('');
 
-  // Google OAuth for Email Integration
-  const googleLogin = useGoogleLogin({
-    flow: 'auth-code',
-    scope: 'https://www.googleapis.com/auth/gmail.modify',
-    onSuccess: async (codeResponse) => {
-      try {
-        if (!organization) throw new Error("No organization found");
-        
-        const res = await fetch('http://localhost:3001/api/exchange-google-token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code: codeResponse.code, organizationId: organization.id })
-        });
-        
-        if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || "Failed to exchange token");
-        }
-        
-        const newList = [...connectedIntegrations, 'email'];
-        setConnectedIntegrations(newList);
-        
-        toast('Successfully connected to Gmail API!', 'success');
-        setSelectedIntegration(null);
-      } catch (err: any) {
-        console.error('Failed to connect Google', err);
-        toast(err.message || 'Failed to connect Google account. Please ensure the server is running.', 'error');
-      }
-    },
-    onError: errorResponse => {
-      console.error('Google Sign-In Error:', errorResponse);
-      const errMsg = errorResponse.error === 'invalid_client'
-        ? 'Invalid Google OAuth Client ID. Please set a valid VITE_GOOGLE_CLIENT_ID in .env'
-        : (errorResponse.error || 'Google Sign-In Failed');
-      toast(errMsg, 'error');
-    },
+  // Email Integration Module State
+  const [emailIntegration, setEmailIntegration] = useState<{
+    status: 'connected' | 'disconnected' | 'token_expired' | 'error';
+    email_address: string | null;
+    last_synced_at: string | null;
+    loading: boolean;
+    actionLoading: string | null;
+  }>({
+    status: 'disconnected',
+    email_address: null,
+    last_synced_at: null,
+    loading: true,
+    actionLoading: null,
   });
+
+  const fetchEmailIntegrationStatus = async () => {
+    if (!organization?.id) return;
+    try {
+      setEmailIntegration(prev => ({ ...prev, loading: true }));
+      const res = await fetch(`http://localhost:3001/api/integrations/email?organization_id=${organization.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setEmailIntegration({
+          status: data.status || 'disconnected',
+          email_address: data.email_address || null,
+          last_synced_at: data.last_synced_at || null,
+          loading: false,
+          actionLoading: null,
+        });
+      } else {
+        setEmailIntegration(prev => ({ ...prev, loading: false }));
+      }
+    } catch (err) {
+      console.error('Failed to fetch email integration status:', err);
+      setEmailIntegration(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  useEffect(() => {
+    fetchEmailIntegrationStatus();
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('email_connected') === 'true') {
+      const email = params.get('email');
+      toast(`Successfully connected Gmail: ${email || ''}`, 'success');
+      window.history.replaceState({}, document.title, window.location.pathname + '?tab=integrations');
+      fetchEmailIntegrationStatus();
+    } else if (params.get('error') === 'oauth_denied') {
+      toast('Google authorization was denied.', 'error');
+      window.history.replaceState({}, document.title, window.location.pathname + '?tab=integrations');
+    } else if (params.get('error') === 'oauth_failed') {
+      toast(`OAuth authorization failed: ${params.get('message') || ''}`, 'error');
+      window.history.replaceState({}, document.title, window.location.pathname + '?tab=integrations');
+    }
+  }, [organization?.id]);
+
+  const handleConnectGmailBackend = async () => {
+    if (!organization?.id) {
+      toast('Organization not loaded yet', 'error');
+      return;
+    }
+    try {
+      setEmailIntegration(prev => ({ ...prev, actionLoading: 'connecting' }));
+      const res = await fetch(`http://localhost:3001/api/integrations/email/gmail/connect?organization_id=${organization.id}`);
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to initiate OAuth');
+      }
+      const data = await res.json();
+      if (data.authorization_url) {
+        window.location.href = data.authorization_url;
+      } else {
+        throw new Error('Authorization URL missing');
+      }
+    } catch (err: any) {
+      setEmailIntegration(prev => ({ ...prev, actionLoading: null }));
+      toast(err.message || 'Unable to connect Gmail. Please try again.', 'error');
+    }
+  };
+
+  const handleSyncGmailBackend = async () => {
+    if (!organization?.id) return;
+    try {
+      setEmailIntegration(prev => ({ ...prev, actionLoading: 'syncing' }));
+      const res = await fetch('http://localhost:3001/api/integrations/email/gmail/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ organization_id: organization.id })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Sync failed');
+      }
+      const data = await res.json();
+      setEmailIntegration({
+        status: 'connected',
+        email_address: data.emailAddress,
+        last_synced_at: data.last_synced_at,
+        loading: false,
+        actionLoading: null,
+      });
+      toast(`Mailbox synced successfully! (${data.messageCount || 0} messages checked)`, 'success');
+    } catch (err: any) {
+      setEmailIntegration(prev => ({ ...prev, actionLoading: null }));
+      toast(err.message || 'Mailbox sync failed. Please try again.', 'error');
+    }
+  };
+
+  const handleDisconnectGmailBackend = async () => {
+    if (!organization?.id) return;
+    try {
+      setEmailIntegration(prev => ({ ...prev, actionLoading: 'disconnecting' }));
+      const res = await fetch(`http://localhost:3001/api/integrations/email/gmail?organization_id=${organization.id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Disconnect failed');
+      }
+      setEmailIntegration({
+        status: 'disconnected',
+        email_address: null,
+        last_synced_at: null,
+        loading: false,
+        actionLoading: null,
+      });
+      toast('Gmail connection disconnected.', 'success');
+    } catch (err: any) {
+      setEmailIntegration(prev => ({ ...prev, actionLoading: null }));
+      toast(err.message || 'Failed to disconnect Gmail.', 'error');
+    }
+  };
+
 
   // Available Integrations Definitions
   const INTEGRATION_DEFINITIONS = [
@@ -1289,6 +1385,99 @@ export function Dashboard() {
                       <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">{cat}</h3>
                       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {INTEGRATION_DEFINITIONS.filter(i => i.category === cat).map((int) => {
+                          if (int.id === 'email') {
+                            const isConnected = emailIntegration.status === 'connected';
+                            const isExpired = emailIntegration.status === 'token_expired';
+                            const isActionLoading = !!emailIntegration.actionLoading;
+
+                            return (
+                              <div key={int.id} className={`border rounded-xl p-5 bg-white flex flex-col justify-between transition-all ${
+                                isConnected ? 'border-emerald-300 bg-emerald-50/20' : isExpired ? 'border-amber-300 bg-amber-50/20' : 'border-gray-200'
+                              }`}>
+                                <div>
+                                  <div className="flex items-start justify-between mb-3">
+                                    <div className="h-10 w-10 rounded-lg bg-red-50 text-red-600 flex items-center justify-center font-bold">
+                                      <Mail className="h-5 w-5" />
+                                    </div>
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                      isConnected ? 'bg-emerald-100 text-emerald-700' : isExpired ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
+                                    }`}>
+                                      {isConnected ? '✓ Connected' : isExpired ? '⚠ Connection Expired' : 'Not Connected'}
+                                    </span>
+                                  </div>
+                                  <h4 className="font-semibold text-gray-900 text-sm">Gmail Email Integration</h4>
+                                  <p className="text-gray-500 text-xs mt-1 leading-relaxed">
+                                    Connect your Gmail business account via Google OAuth 2.0 to securely receive and sync email metadata.
+                                  </p>
+
+                                  {emailIntegration.email_address && (
+                                    <div className="mt-3 p-2.5 rounded-lg bg-gray-50 border border-gray-100 space-y-1 text-xs">
+                                      <div className="flex items-center gap-1.5 font-medium text-gray-800">
+                                        <Mail className="h-3.5 w-3.5 text-gray-500" />
+                                        <span>{emailIntegration.email_address}</span>
+                                      </div>
+                                      {emailIntegration.last_synced_at && (
+                                        <div className="text-[11px] text-gray-500 flex items-center gap-1">
+                                          <Clock className="h-3 w-3" />
+                                          <span>Last synced: {formatDate(emailIntegration.last_synced_at)} {formatTime(emailIntegration.last_synced_at)}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="mt-4 flex flex-wrap items-center gap-2">
+                                  {isConnected ? (
+                                    <>
+                                      <button
+                                        disabled={isActionLoading}
+                                        onClick={handleSyncGmailBackend}
+                                        className="btn-secondary text-xs flex items-center gap-1 px-3 py-1.5"
+                                      >
+                                        <RefreshCw className={`h-3.5 w-3.5 ${emailIntegration.actionLoading === 'syncing' ? 'animate-spin' : ''}`} />
+                                        {emailIntegration.actionLoading === 'syncing' ? 'Syncing...' : 'Sync Now'}
+                                      </button>
+                                      <button
+                                        disabled={isActionLoading}
+                                        onClick={handleDisconnectGmailBackend}
+                                        className="text-xs text-red-600 hover:underline px-2 py-1"
+                                      >
+                                        {emailIntegration.actionLoading === 'disconnecting' ? 'Disconnecting...' : 'Disconnect'}
+                                      </button>
+                                    </>
+                                  ) : isExpired ? (
+                                    <>
+                                      <button
+                                        disabled={isActionLoading}
+                                        onClick={handleConnectGmailBackend}
+                                        className="btn-primary bg-amber-600 hover:bg-amber-700 text-xs flex items-center gap-1 px-3 py-1.5"
+                                      >
+                                        <RefreshCw className={`h-3.5 w-3.5 ${emailIntegration.actionLoading === 'connecting' ? 'animate-spin' : ''}`} />
+                                        {emailIntegration.actionLoading === 'connecting' ? 'Connecting to Google...' : 'Reconnect Gmail'}
+                                      </button>
+                                      <button
+                                        disabled={isActionLoading}
+                                        onClick={handleDisconnectGmailBackend}
+                                        className="text-xs text-red-600 hover:underline px-2 py-1"
+                                      >
+                                        Disconnect
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      disabled={isActionLoading}
+                                      onClick={handleConnectGmailBackend}
+                                      className="btn-primary text-xs flex items-center gap-1 px-4 py-1.5"
+                                    >
+                                      <Mail className="h-3.5 w-3.5" />
+                                      {emailIntegration.actionLoading === 'connecting' ? 'Connecting to Google...' : 'Connect Gmail'}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          }
+
                           const isConnected = connectedIntegrations.includes(int.id);
                           return (
                             <div key={int.id} className={`border rounded-xl p-5 bg-white flex flex-col justify-between transition-all ${isConnected ? 'border-success-300 bg-success-50/20' : 'border-gray-200'}`}>
@@ -1309,18 +1498,13 @@ export function Dashboard() {
                                   <>
                                     <button onClick={() => handleIntegrationDisconnect(int.id, int.name)} className="text-xs text-error-600 hover:underline">Disconnect</button>
                                     <button onClick={() => toast('Sync started', 'success')} className="btn-ghost text-xs flex items-center gap-1"><RefreshCw className="h-3.5 w-3.5" /> Sync</button>
-                                    {int.id === 'email' && (
-                                      <button onClick={() => setTestEmailOpen(true)} className="btn-primary text-[11px] flex items-center gap-1 py-1 px-2.5">
-                                        <Mail className="h-3.5 w-3.5" /> Test AI Email
-                                      </button>
-                                    )}
                                   </>
                                 ) : (
                                   <button
                                     onClick={() => {
                                       const needsPhone = int.id === 'sms' || int.id === 'voice' || int.id === 'whatsapp';
                                       setIntContactType(needsPhone ? 'phone' : 'email');
-                                      setIntContactValue(int.id === 'email' ? (organization?.channel_config?.email_address || user?.email || '') : '');
+                                      setIntContactValue('');
                                       setIntApiKey('');
                                       setIntAccountId('');
                                       setSelectedIntegration(int);
