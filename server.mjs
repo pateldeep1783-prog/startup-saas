@@ -504,7 +504,11 @@ async function pollGmail() {
         oauth2Client.setCredentials({ access_token: accessToken });
         const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-        const res = await gmail.users.messages.list({ userId: 'me', q: 'is:unread' });
+        // Strictly filter unread emails containing appointment or booking keywords
+        const res = await gmail.users.messages.list({ 
+          userId: 'me', 
+          q: 'is:unread (appointment OR booking OR checkup OR dental OR clinic)' 
+        });
         if (res.data.messages && res.data.messages.length > 0) {
           console.log(`[GmailAI] Found ${res.data.messages.length} unread email(s) for Org: ${orgId}`);
 
@@ -585,8 +589,9 @@ async function pollGmail() {
   }
 }
 
-setInterval(pollGmail, 30000);
-setTimeout(pollGmail, 2000);
+// Background auto-polling disabled. Sync will run only on demand.
+// setInterval(pollGmail, 30000);
+// setTimeout(pollGmail, 2000);
 
 app.listen(3001, () => {
   console.log('Backend server running on http://localhost:3001');
