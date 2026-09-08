@@ -61,6 +61,19 @@ class MockSupabaseClient {
                   };
                   self.integrations.set(key, record);
                   return { data: record, error: null };
+                },
+                maybeSingle: async () => {
+                  const key = `${payload.organization_id}:${payload.provider}`;
+                  const existing = self.integrations.get(key) || {};
+                  const record = {
+                    id: existing.id || `integration-${Math.random().toString(36).substr(2, 9)}`,
+                    ...existing,
+                    ...payload,
+                    created_at: existing.created_at || new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                  };
+                  self.integrations.set(key, record);
+                  return { data: record, error: null };
                 }
               };
             }
@@ -110,6 +123,28 @@ class MockSupabaseClient {
         insert: async (row) => {
           self.auditLogs.push(row);
           return { data: row, error: null };
+        }
+      };
+    }
+
+    if (table === 'organizations') {
+      return {
+        select(fields) {
+          return {
+            eq(col, val) {
+              return {
+                maybeSingle: async () => ({ data: { id: val, channel_config: {}, settings: {} }, error: null }),
+                single: async () => ({ data: { id: val, channel_config: {}, settings: {} }, error: null })
+              };
+            }
+          };
+        },
+        update(payload) {
+          return {
+            eq(col, val) {
+              return Promise.resolve({ data: payload, error: null });
+            }
+          };
         }
       };
     }
