@@ -107,7 +107,8 @@ export class EmailIntegrationService {
       .eq('id', organizationId)
       .maybeSingle();
 
-    if (org?.channel_config?.email_address || org?.channel_config?.google_refresh_token) {
+    if ((org?.channel_config?.email_address || org?.channel_config?.google_refresh_token)
+        && org?.channel_config?.status !== 'disconnected') {
       return {
         id: `org-channel-${organizationId}`,
         provider: provider,
@@ -196,6 +197,11 @@ export class EmailIntegrationService {
         } catch (e) {}
       }
 
+      const nowIso = new Date().toISOString();
+      const currentStore = loadLocalStore();
+      const localKey = `${organizationId}:gmail`;
+      const connectedAt = currentStore[localKey]?.connected_at || nowIso;
+
       const payload = {
         organization_id: organizationId,
         provider: 'gmail',
@@ -206,7 +212,8 @@ export class EmailIntegrationService {
         token_expires_at: tokenResult.expiresAt.toISOString(),
         scopes: tokenResult.scopes,
         status: 'connected',
-        last_synced_at: new Date().toISOString(),
+        connected_at: connectedAt,
+        last_synced_at: nowIso,
       };
 
       let savedRecord = null;
@@ -237,6 +244,7 @@ export class EmailIntegrationService {
         google_refresh_token: plainRefreshToken,
         google_access_token: tokenResult.accessToken,
         email_address: profile.emailAddress,
+        connected_at: existingChannel.connected_at || connectedAt,
         last_synced_at: payload.last_synced_at,
         status: 'connected',
       };
@@ -253,8 +261,6 @@ export class EmailIntegrationService {
         .eq('id', organizationId);
 
       // Persistent Local Store Save
-      const currentStore = loadLocalStore();
-      const localKey = `${organizationId}:gmail`;
       currentStore[localKey] = {
         id: `integration-${organizationId}`,
         organization_id: organizationId,
@@ -266,6 +272,7 @@ export class EmailIntegrationService {
         token_expires_at: tokenResult.expiresAt.toISOString(),
         scopes: tokenResult.scopes,
         status: 'connected',
+        connected_at: connectedAt,
         last_synced_at: payload.last_synced_at,
       };
       saveLocalStore(currentStore);
@@ -411,40 +418,64 @@ export class EmailIntegrationService {
       .eq('provider', provider)
       .maybeSingle();
 
-    if (!integration) {
-      return { success: true, message: 'No active integration found.' };
+    // Try revoking Google token (only if we have a record in email_integrations)
+    if (integration) {
+      try {
+        const accessToken = integration.access_token_encrypted
+          ? TokenService.decrypt(integration.access_token_encrypted)
+          : null;
+        const refreshToken = integration.refresh_token_encrypted
+          ? TokenService.decrypt(integration.refresh_token_encrypted)
+          : null;
+
+        const providerImpl = this.getProvider(provider);
+        await providerImpl.revokeAccess({ accessToken, refreshToken });
+      } catch (revokeErr) {
+        console.warn('[EmailIntegrationService] Revoke warning during disconnect:', revokeErr.message);
+      }
+
+      try {
+        await this.supabase
+          .from('email_integrations')
+          .delete()
+          .eq('organization_id', organizationId)
+          .eq('provider', provider);
+      } catch (e) {}
     }
 
-    // Try revoking Google token
-    try {
-      const accessToken = integration.access_token_encrypted
-        ? TokenService.decrypt(integration.access_token_encrypted)
-        : null;
-      const refreshToken = integration.refresh_token_encrypted
-        ? TokenService.decrypt(integration.refresh_token_encrypted)
-        : null;
-
-      const providerImpl = this.getProvider(provider);
-      await providerImpl.revokeAccess({ accessToken, refreshToken });
-    } catch (revokeErr) {
-      console.warn('[EmailIntegrationService] Revoke warning during disconnect:', revokeErr.message);
-    }
-
-    // Delete from local store
+    // Always delete from local store
     const store = loadLocalStore();
     delete store[`${organizationId}:${provider}`];
     saveLocalStore(store);
 
+    // ALWAYS clear channel_config (tokens are stored here, not in email_integrations)
     try {
+      const { data: org } = await this.supabase
+        .from('organizations')
+        .select('channel_config')
+        .eq('id', organizationId)
+        .maybeSingle();
+
+      const clearedConfig = {
+        ...(org?.channel_config || {}),
+        google_refresh_token: null,
+        google_access_token: null,
+        email_address: null,
+        status: 'disconnected',
+        last_synced_at: null,
+      };
       await this.supabase
-        .from('email_integrations')
-        .delete()
-        .eq('organization_id', organizationId)
-        .eq('provider', provider);
-    } catch (e) {}
+        .from('organizations')
+        .update({ channel_config: clearedConfig })
+        .eq('id', organizationId);
+
+      console.log('[EmailIntegrationService] channel_config cleared for org:', organizationId);
+    } catch (e) {
+      console.warn('[EmailIntegrationService] Could not clear channel_config:', e.message);
+    }
 
     await this.logAudit(organizationId, actorId, 'gmail_disconnected', {
-      email_address: integration.email_address,
+      email_address: integration?.email_address || null,
       provider,
     });
 

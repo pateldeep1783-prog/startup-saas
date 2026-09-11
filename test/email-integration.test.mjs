@@ -315,7 +315,24 @@ async function runTestSuite() {
   assert.ok(actionsLogged.includes('gmail_connected'), 'Audit log must record gmail_connected');
   assert.ok(actionsLogged.includes('gmail_token_refreshed'), 'Audit log must record gmail_token_refreshed');
   assert.ok(actionsLogged.includes('gmail_disconnected'), 'Audit log must record gmail_disconnected');
-  console.log('   ✅ Disconnect and audit logging verified.');
+  // 7. SENDGRID INBOUND PARSE & GMAIL VERIFICATION TESTS
+  console.log('7️⃣ Testing SendGrid Inbound Parse & Gmail Verification Code Extraction...');
+  const sampleGmailVerificationBody = `
+    Forwarding Confirmation - Receive Mail from clinic@gmail.com
+    clinic@gmail.com has requested to automatically forward mail to your email address deepdentalsclinic-e044fe@inbound.wallvibe.co.in
+    Confirmation code: 987654321
+    To verify this request, click the link below:
+    https://mail-settings.google.com/mail/vf-987654321-sample
+  `;
+
+  const codeMatch = sampleGmailVerificationBody.match(/Confirmation code:\s*(\d{7,10})/i);
+  assert.ok(codeMatch, 'Must match confirmation code pattern');
+  assert.strictEqual(codeMatch[1], '987654321', 'Extracted confirmation code must match 987654321');
+
+  const linkMatch = sampleGmailVerificationBody.match(/(https:\/\/[^\s<">]+google\.com[^\s<">]*vf-[^\s<">]+)/i);
+  assert.ok(linkMatch, 'Must match google verification URL pattern');
+  assert.strictEqual(linkMatch[1], 'https://mail-settings.google.com/mail/vf-987654321-sample', 'Extracted URL must match link');
+  console.log('   ✅ SendGrid & Gmail verification parsing verified.');
 
   console.log('\n🎉 ALL EMAIL INTEGRATION TESTS PASSED SUCCESSFULLY! (100% PASS rate)');
 }

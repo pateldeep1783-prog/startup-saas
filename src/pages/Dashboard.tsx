@@ -44,7 +44,8 @@ import {
   Menu,
   Plug,
   KeyRound,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Copy
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatTime, getInitials } from '@/lib/utils';
 import { getAvailableSlots, type Slot } from '@/lib/availability';
@@ -118,6 +119,20 @@ export function Dashboard() {
     actionLoading: null,
   });
 
+  const [gmailVerification, setGmailVerification] = useState<{
+    code: string | null;
+    link: string | null;
+    autoConfirmed: boolean;
+    received_at: string | null;
+    loading: boolean;
+  }>({
+    code: null,
+    link: null,
+    autoConfirmed: false,
+    received_at: null,
+    loading: false,
+  });
+
   const fetchEmailIntegrationStatus = async () => {
     if (!organization?.id) return;
     try {
@@ -141,8 +156,69 @@ export function Dashboard() {
     }
   };
 
+  const fetchGmailVerificationCode = async () => {
+    if (!organization?.id) return;
+    try {
+      setGmailVerification(prev => ({ ...prev, loading: true }));
+      const res = await fetch(`http://localhost:3001/api/integrations/email/verification-code?organization_id=${organization.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.verification) {
+          setGmailVerification({
+            code: data.verification.code || null,
+            link: data.verification.link || null,
+            autoConfirmed: !!data.verification.autoConfirmed,
+            received_at: data.verification.received_at || null,
+            loading: false,
+          });
+        } else {
+          setGmailVerification(prev => ({ ...prev, loading: false }));
+        }
+      } else {
+        setGmailVerification(prev => ({ ...prev, loading: false }));
+      }
+    } catch (err) {
+      console.error('Failed to fetch Gmail verification code:', err);
+      setGmailVerification(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleSimulateVerification = async () => {
+    if (!organization?.id) return;
+    try {
+      setGmailVerification(prev => ({ ...prev, loading: true }));
+      const res = await fetch('http://localhost:3001/api/integrations/email/simulate-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ organization_id: organization.id })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setGmailVerification({
+          code: data.verification.code,
+          link: data.verification.link,
+          autoConfirmed: true,
+          received_at: data.verification.received_at,
+          loading: false,
+        });
+        toast(`Simulated verification code generated: ${data.verification.code}`, 'success');
+      } else {
+        setGmailVerification(prev => ({ ...prev, loading: false }));
+      }
+    } catch (err: any) {
+      setGmailVerification(prev => ({ ...prev, loading: false }));
+      toast('Simulation failed: ' + err.message, 'error');
+    }
+  };
+
   useEffect(() => {
     fetchEmailIntegrationStatus();
+    fetchGmailVerificationCode();
+
+    // Auto-poll verification code every 3 seconds for instant real-time updates
+    const pollInterval = setInterval(() => {
+      fetchGmailVerificationCode();
+    }, 3000);
 
     const params = new URLSearchParams(window.location.search);
     if (params.get('email_connected') === 'true') {
@@ -157,6 +233,8 @@ export function Dashboard() {
       toast(`OAuth authorization failed: ${params.get('message') || ''}`, 'error');
       window.history.replaceState({}, document.title, window.location.pathname + '?tab=integrations');
     }
+
+    return () => clearInterval(pollInterval);
   }, [organization?.id]);
 
   const handleConnectGmailBackend = async () => {
@@ -251,12 +329,12 @@ export function Dashboard() {
   ];
   const INTEGRATION_CATEGORIES = [...new Set(INTEGRATION_DEFINITIONS.map(i => i.category))];
 
-  // Test Email Modal State
+  // Test Email Modal State (Local Inbound Webhook Simulator)
   const [testEmailOpen, setTestEmailOpen] = useState(false);
-  const [testEmailFrom, setTestEmailFrom] = useState('rahul.patel@gmail.com');
-  const [testEmailName, setTestEmailName] = useState('Rahul Patel');
-  const [testEmailSubject, setTestEmailSubject] = useState('Appointment Booking Request');
-  const [testEmailBody, setTestEmailBody] = useState('Hello! I would like to book an appointment for tomorrow at 10:00 AM. Please confirm.');
+  const [testEmailFrom, setTestEmailFrom] = useState('patelnil8176@gmail.com');
+  const [testEmailName, setTestEmailName] = useState('Patel Nil');
+  const [testEmailSubject, setTestEmailSubject] = useState('Appointment Booking Request for Tomorrow');
+  const [testEmailBody, setTestEmailBody] = useState('Hello Dr. Deep! I am Patel Nil. I would like to book an Initial Consultation appointment for tomorrow at 10:00 AM. Please confirm.');
   const [testEmailLoading, setTestEmailLoading] = useState(false);
   const [testEmailResult, setTestEmailResult] = useState<any>(null);
 
@@ -999,43 +1077,115 @@ export function Dashboard() {
                       <h2 className="text-base font-bold text-gray-900">Customer CRM</h2>
                       <p className="text-xs text-gray-500">Manage client directory, records, and preferences</p>
                     </div>
+                    <div className="relative w-64">
+                      <Search className="h-4 w-4 text-gray-400 absolute left-3 top-2.5" />
+                      <input
+                        type="text"
+                        placeholder="Search customers..."
+                        value={customerSearchQuery}
+                        onChange={(e) => setCustomerSearchQuery(e.target.value)}
+                        className="input pl-9 text-xs py-1.5 w-full"
+                      />
+                    </div>
                   </div>
 
                   <div className="grid lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-1 border-r border-gray-100 pr-6 space-y-4">
                       <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Client List</h3>
-                      <div className="space-y-2">
-                        {customers.map((c) => (
-                          <div key={c.id} className="p-3 bg-gray-50 rounded-lg hover:bg-primary-50 hover:text-primary-800 transition-colors cursor-pointer">
-                            <span className="font-semibold text-xs text-gray-900 block">{c.name}</span>
-                            <span className="text-[10px] text-gray-500 mt-0.5 block">{c.email}</span>
-                          </div>
-                        ))}
+                      <div className="space-y-2 max-h-[550px] overflow-y-auto pr-1">
+                        {customers
+                          .filter(c => 
+                            c.name?.toLowerCase().includes(customerSearchQuery.toLowerCase()) ||
+                            c.email?.toLowerCase().includes(customerSearchQuery.toLowerCase()) ||
+                            c.phone?.includes(customerSearchQuery)
+                          )
+                          .map((c) => {
+                            const isSelected = (selectedCustomer?.id || customers[0]?.id) === c.id;
+                            return (
+                              <div
+                                key={c.id}
+                                onClick={() => setSelectedCustomer(c)}
+                                className={`p-3 rounded-lg border text-xs cursor-pointer transition-all ${
+                                  isSelected
+                                    ? 'border-primary-500 bg-primary-50/50 shadow-sm ring-1 ring-primary-500'
+                                    : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50/50'
+                                }`}
+                              >
+                                <span className="font-semibold text-gray-800 block">{c.name}</span>
+                                <span className="text-[10px] text-gray-500 block truncate">{c.email || c.phone}</span>
+                              </div>
+                            );
+                          })}
+                        {customers.length === 0 && (
+                          <p className="text-xs text-gray-400 p-4 text-center">No customers found</p>
+                        )}
                       </div>
                     </div>
 
                     <div className="lg:col-span-2 space-y-6">
-                      <div className="bg-gray-50 rounded-xl p-6">
-                        <h3 className="text-sm font-bold text-gray-900 mb-4">Customer profile: {customers[0]?.name}</h3>
-                        <div className="grid grid-cols-2 gap-4 text-xs">
-                          <div>
-                            <span className="text-gray-400 block">Email Address</span>
-                            <span className="font-medium text-gray-900 block mt-1">{customers[0]?.email}</span>
+                      {(() => {
+                        const currentCust = selectedCustomer || customers[0];
+                        return currentCust ? (
+                          <div className="bg-gray-50 rounded-xl p-6 space-y-6">
+                            <div className="flex items-center justify-between border-b border-gray-200/60 pb-4">
+                              <div>
+                                <h3 className="text-sm font-bold text-gray-900">Customer profile: {currentCust.name}</h3>
+                                <p className="text-[11px] text-gray-500">{currentCust.email || 'No email registered'}</p>
+                              </div>
+                              <span className="px-2.5 py-1 bg-primary-100 text-primary-800 font-semibold text-xs rounded-full border border-primary-200 capitalize">
+                                {currentCust.status || 'Lead'}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4 text-xs">
+                              <div>
+                                <span className="text-gray-400 block font-medium">Email Address</span>
+                                <span className="font-semibold text-gray-900 block mt-0.5">{currentCust.email || 'N/A'}</span>
+                              </div>
+                              <div>
+                                <span className="text-gray-400 block font-medium">Phone Number</span>
+                                <span className="font-semibold text-gray-900 block mt-0.5">{currentCust.phone || 'N/A'}</span>
+                              </div>
+                              <div>
+                                <span className="text-gray-400 block font-medium">Customer Status</span>
+                                <span className="font-semibold text-gray-900 block mt-0.5 capitalize">{currentCust.status || 'Lead'}</span>
+                              </div>
+                              <div>
+                                <span className="text-gray-400 block font-medium">Notes & Preferences</span>
+                                <span className="font-semibold text-gray-900 block mt-0.5">{currentCust.notes ?? 'No notes added'}</span>
+                              </div>
+                            </div>
+
+                            {/* Booking History for this customer */}
+                            <div className="space-y-3 pt-4 border-t border-gray-200/60">
+                              <h4 className="text-xs font-bold text-gray-800">Booking History</h4>
+                              <div className="space-y-2">
+                                {bookings.filter(b => b.customer_id === currentCust.id).length > 0 ? (
+                                  bookings.filter(b => b.customer_id === currentCust.id).map(bk => (
+                                    <div key={bk.id} className="p-3 bg-white border border-gray-200 rounded-lg flex items-center justify-between text-xs">
+                                      <div>
+                                        <span className="font-semibold text-gray-800 block">{getServiceName(bk.service_id)}</span>
+                                        <span className="text-[10px] text-gray-500">{formatDate(bk.start_time)} at {formatTime(bk.start_time)} with {getStaffName(bk.staff_id)}</span>
+                                      </div>
+                                      <span className={`px-2 py-0.5 rounded text-[10px] font-semibold capitalize ${
+                                        bk.status === 'confirmed' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-200 text-gray-700'
+                                      }`}>
+                                        {bk.status}
+                                      </span>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <p className="text-xs text-gray-400 italic">No past or upcoming bookings for this customer.</p>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                          <div>
-                            <span className="text-gray-400 block">Phone Number</span>
-                            <span className="font-medium text-gray-900 block mt-1">{customers[0]?.phone}</span>
+                        ) : (
+                          <div className="text-center py-12 text-gray-400 text-xs">
+                            Select a customer from the list to view their complete profile.
                           </div>
-                          <div>
-                            <span className="text-gray-400 block">Customer Status</span>
-                            <span className="font-medium text-gray-900 block mt-1 capitalize">{customers[0]?.status}</span>
-                          </div>
-                          <div>
-                            <span className="text-gray-400 block">Notes & Preferences</span>
-                            <span className="font-medium text-gray-900 block mt-1">{customers[0]?.notes ?? 'No notes added'}</span>
-                          </div>
-                        </div>
-                      </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -1386,94 +1536,199 @@ export function Dashboard() {
                       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {INTEGRATION_DEFINITIONS.filter(i => i.category === cat).map((int) => {
                           if (int.id === 'email') {
-                            const isConnected = emailIntegration.status === 'connected';
-                            const isExpired = emailIntegration.status === 'token_expired';
-                            const isActionLoading = !!emailIntegration.actionLoading;
+                            const isConnected = connectedIntegrations.includes('email');
+                            const forwardingEmail = `${organization?.name ? organization.name.toLowerCase().replace(/[^a-z0-9]/g, '') : 'clinic'}-${organization?.id ? organization.id.slice(0, 6) : 'demo'}@inbound.wallvibe.co.in`;
 
                             return (
-                              <div key={int.id} className={`border rounded-xl p-5 bg-white flex flex-col justify-between transition-all ${
-                                isConnected ? 'border-emerald-300 bg-emerald-50/20' : isExpired ? 'border-amber-300 bg-amber-50/20' : 'border-gray-200'
-                              }`}>
-                                <div>
-                                  <div className="flex items-start justify-between mb-3">
-                                    <div className="h-10 w-10 rounded-lg bg-red-50 text-red-600 flex items-center justify-center font-bold">
-                                      <Mail className="h-5 w-5" />
+                              <div key={int.id} className="md:col-span-2 lg:col-span-3 border border-emerald-200 rounded-xl p-6 bg-gradient-to-br from-emerald-50/40 to-white shadow-sm space-y-6">
+                                <div className="flex items-start justify-between">
+                                  <div className="flex items-center gap-3">
+                                    <div className="h-11 w-11 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shadow-sm">
+                                      <Mail className="h-6 w-6" />
                                     </div>
-                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                      isConnected ? 'bg-emerald-100 text-emerald-700' : isExpired ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
-                                    }`}>
-                                      {isConnected ? '✓ Connected' : isExpired ? '⚠ Connection Expired' : 'Not Connected'}
-                                    </span>
-                                  </div>
-                                  <h4 className="font-semibold text-gray-900 text-sm">Gmail Email Integration</h4>
-                                  <p className="text-gray-500 text-xs mt-1 leading-relaxed">
-                                    Connect your Gmail business account via Google OAuth 2.0 to securely receive and sync email metadata.
-                                  </p>
-
-                                  {emailIntegration.email_address && (
-                                    <div className="mt-3 p-2.5 rounded-lg bg-gray-50 border border-gray-100 space-y-1 text-xs">
-                                      <div className="flex items-center gap-1.5 font-medium text-gray-800">
-                                        <Mail className="h-3.5 w-3.5 text-gray-500" />
-                                        <span>{emailIntegration.email_address}</span>
+                                    <div>
+                                      <div className="flex items-center gap-2">
+                                        <h4 className="font-bold text-gray-900 text-sm">Resend / Inbound Webhook Email Engine</h4>
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                          ✓ Recommended (Zero Verification Needed)
+                                        </span>
                                       </div>
-                                      {emailIntegration.last_synced_at && (
-                                        <div className="text-[11px] text-gray-500 flex items-center gap-1">
-                                          <Clock className="h-3 w-3" />
-                                          <span>Last synced: {formatDate(emailIntegration.last_synced_at)} {formatTime(emailIntegration.last_synced_at)}</span>
+                                      <p className="text-gray-500 text-xs mt-0.5">
+                                        Receive customer inquiry emails, auto-generate AI responses, and book appointments via Webhook.
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <button
+                                    onClick={() => setTestEmailOpen(true)}
+                                    className="btn-secondary text-xs flex items-center gap-1.5 py-1.5 px-3 bg-white border-emerald-300 text-emerald-800 hover:bg-emerald-50 shadow-xs"
+                                  >
+                                    <Sparkles className="h-3.5 w-3.5 text-emerald-600" /> Test Email Sandbox
+                                  </button>
+                                </div>
+
+                                {/* Multi-user setup: 3 steps */}
+                                <div className="space-y-3">
+
+                                  {/* Step 1: Unique AI Address */}
+                                  <div className="p-4 bg-white border border-emerald-100 rounded-xl">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <span className="text-xs font-bold text-gray-800">Step 1 — Your Unique AI Inbound Address</span>
+                                      <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">Active</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <input
+                                        type="text"
+                                        readOnly
+                                        value={forwardingEmail}
+                                        className="input bg-gray-50 font-mono text-[11px] text-gray-700 py-1.5 flex-1"
+                                      />
+                                      <button
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(forwardingEmail);
+                                          toast('AI Address copied! Use it in Step 2 below.', 'success');
+                                        }}
+                                        className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1 shrink-0"
+                                      >
+                                        <LinkIcon className="h-3.5 w-3.5" /> Copy
+                                      </button>
+                                    </div>
+                                    <p className="text-[10px] text-gray-400">
+                                      🔒 This address is unique to <strong>{organization?.name || 'your clinic'}</strong>. Only emails sent to/forwarded here will be processed by your AI.
+                                    </p>
+                                  </div>
+
+                                  {/* Step 2: Gmail Built-in Forward */}
+                                  <div className="p-4 bg-white border border-blue-100 rounded-xl space-y-4">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <span className="text-xs font-bold text-gray-800">Step 2 — Forward Your Gmail to AI (30 seconds)</span>
+                                      <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">Zero Setup</span>
+                                    </div>
+                                    <ol className="text-[11px] text-gray-600 space-y-2 mb-3 list-none">
+                                      <li className="flex gap-2 items-start">
+                                        <span className="font-bold text-blue-600 w-5 shrink-0">1.</span>
+                                        <span>Open your <strong>Gmail → Settings ⚙️ → See all settings → Forwarding and POP/IMAP</strong></span>
+                                      </li>
+                                      <li className="flex gap-2 items-start">
+                                        <span className="font-bold text-blue-600 w-5 shrink-0">2.</span>
+                                        <span>Click <strong>"Add a forwarding address"</strong> → Paste your AI address from Step 1</span>
+                                      </li>
+                                      <li className="flex gap-2 items-start">
+                                        <span className="font-bold text-blue-600 w-5 shrink-0">3.</span>
+                                        <span>Gmail sends a verification code to our server → <strong>Auto-captured below!</strong> 🔑</span>
+                                      </li>
+                                      <li className="flex gap-2 items-start">
+                                        <span className="font-bold text-blue-600 w-5 shrink-0">4.</span>
+                                        <span>Select <strong>"Forward a copy of incoming mail"</strong> → Save</span>
+                                      </li>
+                                    </ol>
+
+                                    {/* Gmail Verification Code Box */}
+                                    <div className="p-3 bg-gradient-to-r from-amber-50 via-white to-amber-50 border border-amber-200 rounded-lg shadow-xs space-y-2">
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900">
+                                          <KeyRound className="h-4 w-4 text-amber-600" />
+                                          <span>Gmail Forwarding Verification Code</span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            onClick={fetchGmailVerificationCode}
+                                            disabled={gmailVerification.loading}
+                                            className="btn-ghost text-[10px] py-1 px-2 text-amber-800 hover:bg-amber-100 flex items-center gap-1"
+                                          >
+                                            <RefreshCw className={`h-3 w-3 ${gmailVerification.loading ? 'animate-spin' : ''}`} /> Refresh Code
+                                          </button>
+                                          <button
+                                            onClick={handleSimulateVerification}
+                                            className="btn-ghost text-[10px] py-1 px-2 text-indigo-700 hover:bg-indigo-50 flex items-center gap-1 font-semibold"
+                                          >
+                                            <Sparkles className="h-3 w-3" /> Test Sandbox
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      {gmailVerification.code || gmailVerification.link ? (
+                                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-white border border-amber-300 p-3 rounded-md gap-3">
+                                          <div>
+                                            <div className="text-[10px] text-amber-700 font-semibold uppercase tracking-wider">Gmail Verification Email Received</div>
+                                            {gmailVerification.code ? (
+                                              <div className="text-lg font-mono font-extrabold text-amber-950 tracking-widest mt-0.5">{gmailVerification.code}</div>
+                                            ) : (
+                                              <div className="text-xs font-semibold text-emerald-800 mt-0.5 flex items-center gap-1">
+                                                <span>✅ Google Direct Confirmation Link Captured</span>
+                                              </div>
+                                            )}
+                                            {gmailVerification.received_at && (
+                                              <div className="text-[9px] text-gray-400 mt-0.5">Received {new Date(gmailVerification.received_at).toLocaleTimeString()}</div>
+                                            )}
+                                          </div>
+
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            {gmailVerification.link && (
+                                              <a
+                                                href={gmailVerification.link}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="btn-primary text-xs py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 border-emerald-700 flex items-center gap-1.5 shadow-xs text-white"
+                                              >
+                                                <LinkIcon className="h-3.5 w-3.5" /> 1-Click Confirm Forwarding
+                                              </a>
+                                            )}
+                                            {gmailVerification.code && (
+                                              <button
+                                                onClick={() => {
+                                                  navigator.clipboard.writeText(gmailVerification.code || '');
+                                                  toast('Verification code copied! Paste it in Gmail.', 'success');
+                                                }}
+                                                className="btn-secondary text-xs py-1.5 px-3 bg-amber-600 hover:bg-amber-700 text-white border-amber-700 flex items-center gap-1 shadow-xs"
+                                              >
+                                                <Copy className="h-3.5 w-3.5" /> Copy Code
+                                              </button>
+                                            )}
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="text-[11px] text-amber-800 bg-amber-100/50 p-2.5 rounded border border-amber-200 flex items-center justify-between">
+                                          <div className="flex items-center gap-2">
+                                            <Clock className="h-4 w-4 text-amber-600 shrink-0" />
+                                            <span>Waiting for Gmail verification code... Send confirmation mail from Gmail settings.</span>
+                                          </div>
+                                          <span className="text-[10px] text-amber-700 font-mono bg-white px-2 py-0.5 rounded border border-amber-300">Listening...</span>
                                         </div>
                                       )}
                                     </div>
-                                  )}
+
+                                    <div className="flex items-center gap-2 pt-1">
+                                      <a
+                                        href="https://mail.google.com/mail/u/0/#settings/fwdandpop"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50"
+                                      >
+                                        <Mail className="h-3.5 w-3.5" /> Open Gmail Forwarding Settings
+                                      </a>
+                                      <button
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(forwardingEmail);
+                                          toast('AI address copied! Paste it in Gmail Forwarding Settings.', 'success');
+                                        }}
+                                        className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
+                                      >
+                                        <Copy className="h-3.5 w-3.5" /> Copy AI Address
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* Flow Summary */}
+                                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                                    <p className="text-[11px] text-emerald-800 font-medium mb-1">✅ After setup — fully automatic, forever:</p>
+                                    <p className="text-[10px] text-emerald-700 font-mono">
+                                      Customer → {organization?.name || 'Your Clinic'} Gmail → Auto-forward → AI reads → Gemini reply → Resend ✉️
+                                    </p>
+                                  </div>
+
                                 </div>
 
-                                <div className="mt-4 flex flex-wrap items-center gap-2">
-                                  {isConnected ? (
-                                    <>
-                                      <button
-                                        disabled={isActionLoading}
-                                        onClick={handleSyncGmailBackend}
-                                        className="btn-secondary text-xs flex items-center gap-1 px-3 py-1.5"
-                                      >
-                                        <RefreshCw className={`h-3.5 w-3.5 ${emailIntegration.actionLoading === 'syncing' ? 'animate-spin' : ''}`} />
-                                        {emailIntegration.actionLoading === 'syncing' ? 'Syncing...' : 'Sync Now'}
-                                      </button>
-                                      <button
-                                        disabled={isActionLoading}
-                                        onClick={handleDisconnectGmailBackend}
-                                        className="text-xs text-red-600 hover:underline px-2 py-1"
-                                      >
-                                        {emailIntegration.actionLoading === 'disconnecting' ? 'Disconnecting...' : 'Disconnect'}
-                                      </button>
-                                    </>
-                                  ) : isExpired ? (
-                                    <>
-                                      <button
-                                        disabled={isActionLoading}
-                                        onClick={handleConnectGmailBackend}
-                                        className="btn-primary bg-amber-600 hover:bg-amber-700 text-xs flex items-center gap-1 px-3 py-1.5"
-                                      >
-                                        <RefreshCw className={`h-3.5 w-3.5 ${emailIntegration.actionLoading === 'connecting' ? 'animate-spin' : ''}`} />
-                                        {emailIntegration.actionLoading === 'connecting' ? 'Connecting to Google...' : 'Reconnect Gmail'}
-                                      </button>
-                                      <button
-                                        disabled={isActionLoading}
-                                        onClick={handleDisconnectGmailBackend}
-                                        className="text-xs text-red-600 hover:underline px-2 py-1"
-                                      >
-                                        Disconnect
-                                      </button>
-                                    </>
-                                  ) : (
-                                    <button
-                                      disabled={isActionLoading}
-                                      onClick={handleConnectGmailBackend}
-                                      className="btn-primary text-xs flex items-center gap-1 px-4 py-1.5"
-                                    >
-                                      <Mail className="h-3.5 w-3.5" />
-                                      {emailIntegration.actionLoading === 'connecting' ? 'Connecting to Google...' : 'Connect Gmail'}
-                                    </button>
-                                  )}
-                                </div>
                               </div>
                             );
                           }

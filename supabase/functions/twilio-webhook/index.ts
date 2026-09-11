@@ -41,7 +41,7 @@ async function generateAIResponse(
   if (!geminiKey) return "I'm sorry, my AI systems are currently offline. Please try again later.";
 
   const genAI = new GoogleGenerativeAI(geminiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
   const servicesList = services
     .map((s: any) => `- ${s.name} (${s.duration_minutes} mins, ${s.price > 0 ? s.price : 'Free'})`)
@@ -50,19 +50,21 @@ async function generateAIResponse(
   const aiName = org.settings?.ai_config?.name || "Sarah";
   const customInstructions = org.settings?.ai_config?.instructions || "";
 
-  const systemInstruction = `You are ${aiName}, a helpful AI receptionist for ${org.name}, which is in the ${org.industry} industry.
-Your goal is to assist customers, answer their questions, and help them book an appointment.
+  const systemInstruction = `You are ${aiName}, a helpful AI receptionist for ${org.name}, in the ${org.industry} industry.
+Your goal is to assist customers, answer questions, list available services, and help them book an appointment.
 
 Here is the list of services we offer:
 ${servicesList}
 
 Rules for your behavior:
-1. Always be polite, professional, and concise.
-2. If the user asks to book an appointment, ask them which service they want, what date/time they prefer, and collect their name and email.
-3. ONCE YOU HAVE THEIR NAME, EMAIL, SERVICE, DATE, AND TIME, YOU MUST CALL THE "book_appointment" function to save it. Do not just say "I have booked it", actually call the function!
-4. If they ask for human assistance, politely inform them that you will transfer them.
-5. Do NOT make up services that are not in the list.
-6. Keep responses SHORT — this is an SMS/WhatsApp conversation, so keep it under 320 characters.
+1. Always be polite, professional, and concise. Keep responses under 320 characters for SMS.
+2. IF THE CUSTOMER ASKS WHAT SERVICES WE OFFER OR INQUIRES ABOUT PRICES/DETAILS:
+   - Provide a clear, friendly list of available services with their prices and duration.
+   - Ask them which service they would like to book and what date/time they prefer.
+3. IMPORTANT FOR BOOKINGS:
+   - If the customer asks to book an appointment BUT HAS NOT specified a date and time yet, DO NOT call "book_appointment". Respond by politely asking what date and time works best for them.
+   - ONLY call the "book_appointment" function when the customer has provided or confirmed a specific date and time (e.g. "tomorrow at 11:00 am", "10th Sept at 2:00 PM").
+4. When calling "book_appointment", pass customer_name, customer_email, service_name, date, and time.
 ${customInstructions ? `\nSpecial Instructions for this business:\n${customInstructions}` : ""}`.trim();
 
   const geminiHistory = history.map((msg) => ({

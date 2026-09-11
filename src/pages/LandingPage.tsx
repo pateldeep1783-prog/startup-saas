@@ -366,12 +366,33 @@ function FAQItem({ q, a }: { q: string; a: string }) {
 }
 
 function FooterCol({ title, links }: { title: string; links: string[] }) {
+  const getHref = (label: string) => {
+    switch (label.toLowerCase()) {
+      case 'features': return '#features';
+      case 'pricing': return '#pricing';
+      case 'industries': return '#industries';
+      case 'demo': return '#how-it-works';
+      default: return '#';
+    }
+  };
+
   return (
     <div>
       <h4 className="text-sm font-semibold text-gray-900 mb-3">{title}</h4>
       <ul className="space-y-2">
         {links.map((l) => (
-          <li key={l}><a href="#" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{l}</a></li>
+          <li key={l}>
+            <a
+              href={getHref(l)}
+              onClick={(e) => {
+                const href = getHref(l);
+                if (href === '#') e.preventDefault();
+              }}
+              className="text-sm text-gray-500 hover:text-gray-900 transition-colors"
+            >
+              {l}
+            </a>
+          </li>
         ))}
       </ul>
     </div>

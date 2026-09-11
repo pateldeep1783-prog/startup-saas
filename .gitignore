@@ -24,3 +24,4 @@ dist-ssr
 test-*.mjs
 Dashboard_orig.tsx
 supabase/.temp/
+cloudflared.exe

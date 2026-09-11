@@ -42,7 +42,7 @@ async function generateAIResponse(
   if (!geminiKey) return "I'm sorry, my AI systems are currently offline. Please call back later.";
 
   const genAI = new GoogleGenerativeAI(geminiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
   const servicesList = services
     .map((s: any) => `- ${s.name} (${s.duration_minutes} mins, ${s.price > 0 ? s.price : 'Free'})`)

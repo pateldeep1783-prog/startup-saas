@@ -3,7 +3,7 @@ import { GoogleGenerativeAI, SchemaType, FunctionDeclaration } from '@google/gen
 // Initialize the API using the Vite env variable
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
 export const genAI = new GoogleGenerativeAI(apiKey);
-const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 export interface ChatMessage {
   sender: 'ai' | 'customer';
